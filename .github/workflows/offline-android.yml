@@ -219,6 +219,47 @@
           }
         }
       ]
+    },
+    "msvc-probe": {
+      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[msvc-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "needs": "source-checks",
+      "runs-on": "windows-latest",
+      "timeout-minutes": 20,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Provision exact Rust for tiny link qualification",
+          "timeout-minutes": 12,
+          "run": "python -B ci/provision_rust.py"
+        },
+        {
+          "name": "Require this qualification VM prerequisites",
+          "run": "python -B ci/runner_preflight.py --require-qualified"
+        },
+        {
+          "name": "Tiny installed Microsoft x64 linker qualification only",
+          "timeout-minutes": 5,
+          "run": "python -B ci/msvc_probe.py"
+        },
+        {
+          "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
+          "if": "always()",
+          "with": {
+            "name": "msvc-probe-${{ github.sha }}",
+            "path": "msvc-probe-work/msvc-qualification.json\nmsvc-probe-work/failure-summary.json\nmsvc-probe-work/trial-progress.json\npreflight-output/*.json\nprovision-output/*.json",
+            "if-no-files-found": "warn",
+            "retention-days": 3
+          }
+        }
+      ]
     }
   }
 }

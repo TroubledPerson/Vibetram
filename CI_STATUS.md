@@ -65,3 +65,9 @@ The next single bounded trial uses Microsoft's installed vswhere and VsDevCmd.ba
 Before Cargo compilation, tiny C/Windows-SDK and exact-Rust1.95 x64 programs must compile/link and validate as PE x64. These test executables are not run. Each command has a bounded deadline and the qualification has a180-second checked budget under the existing disk/output monitor. Failure preserves a small msvc-qualification report and stops before the full build. Only if it passes does the existing unsigned trial continue. No tool installation, dependency/version change, signing or Release is added.
 
 Official setup references: https://github.com/microsoft/vswhere/wiki/Find-VC and https://learn.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-170
+
+## Discovery-only environment correction and tiny probe
+
+Run42644436451 confirmed the initial PATH points to Git usr/bin/link.exe. Microsoft-signed vswhere3.1.7.39155 passed provenance checks, but returned no installation under the private sanitized environment; no C/Rust fixture or Cargo compilation ran. That qualification remains failed, not a successful MSVC setup.
+
+A separate [msvc-probe-191] run now compares the same installed vswhere command before/after adding only the known public ProgramData and ALLUSERSPROFILE registration locations to the discovery/setup subprocess. No account environment or credentials are imported; compiler children still receive only the selected VC fields. Empty/ambiguous discovery stops with a precise category. Only tiny compile/link fixtures may run in this probe, never Cargo or application compilation. A further full unsigned trial remains blocked pending actual tiny-probe success.

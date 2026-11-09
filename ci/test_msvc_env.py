@@ -1,5 +1,5 @@
 import unittest,struct
-from msvc_env import parse_exports,apply_exports,pe_x64,EXPORTS
+from msvc_env import parse_exports,apply_exports,pe_x64,EXPORTS,discovery_env
 class MsvcPolicy(unittest.TestCase):
  def good(self):
   return {'PATH':'official;git','INCLUDE':'sdk','LIB':'libs','LIBPATH':'libs','VCToolsInstallDir':'tools','VCToolsVersion':'14.44.1','WindowsSdkDir':'sdk','WindowsSDKVersion':'10.0.26100.0','VSCMD_ARG_TGT_ARCH':'x64','VSCMD_ARG_HOST_ARCH':'x64'}
@@ -32,4 +32,9 @@ class MsvcPolicy(unittest.TestCase):
   with self.assertRaises(AssertionError):pe_x64(b)
  def test_non_pe_denied(self):
   with self.assertRaises(AssertionError):pe_x64(b'not an executable')
+ def test_discovery_adds_only_public_registration_locations(self):
+  base={'PATH':'tools'};env=discovery_env(base,{'ProgramData':r'C:\ProgramData','ALLUSERSPROFILE':r'C:\ProgramData','GITHUB_TOKEN':'synthetic'})
+  self.assertEqual(base,{'PATH':'tools'});self.assertNotIn('GITHUB_TOKEN',env);self.assertEqual(set(env),{'PATH','ProgramData','ALLUSERSPROFILE'})
+ def test_unexpected_discovery_location_rejected(self):
+  with self.assertRaises(AssertionError):discovery_env({}, {'ProgramData':r'D:\unexpected','ALLUSERSPROFILE':r'C:\ProgramData'})
 if __name__=='__main__':unittest.main()
