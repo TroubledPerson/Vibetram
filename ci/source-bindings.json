@@ -197,11 +197,11 @@
   },
   {
     "path": "ci/ndk_input_metadata.py",
-    "sha256": "4817a5a5f29b93e44a1d8328f7811183347f9431be628ab0667a2104a71ade60"
+    "sha256": "f30c65f78a0e1a9d4142b0a924aa126585d9fab08ac1a1379e64f8129528466a"
   },
   {
     "path": "ci/openssl_probe.py",
-    "sha256": "5f2c799b8e793034346b5a52e42986d1d5dcb67df7d21b5b6985e1ae32b1a22d"
+    "sha256": "b2789400092164a6495f18f026bbbef12cb04fdfa1bdcbc1e067be8a6c8d8aaf"
   },
   {
     "path": "ci/provision_rust.py",
@@ -265,11 +265,11 @@
   },
   {
     "path": "ci/test_ndk_input_metadata.py",
-    "sha256": "2913043ed4e5893959a1a9c50de03dea30233b7355cbfc5373f1364dbf90d004"
+    "sha256": "0b16d92218e7717e7817303d3dca9f2391e266a49581c98c576cda5392c762e9"
   },
   {
     "path": "ci/test_openssl_probe.py",
-    "sha256": "56db8c052ee412960528e47ca4f0e762cb7dfa27475b383f8d69c3cf226ce176"
+    "sha256": "a95a18d89c43b8884a289557d1b5d27effc30200b0437158a1b64341b98dc6d1"
   },
   {
     "path": "ci/test_ordinary_churn.py",

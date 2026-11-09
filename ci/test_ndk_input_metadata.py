@@ -1,6 +1,6 @@
 import unittest,pathlib,types,os
 from unittest.mock import patch
-from ndk_input_metadata import target_for,stable_rows,regular_target,safe_target,capture_one
+from ndk_input_metadata import target_for,stable_rows,regular_target,safe_target,capture_one,expected_mapping
 class Metadata(unittest.TestCase):
  def record(self,name,relative=True):return {"substituteName":name,"relative":relative}
  def test_relative(self):self.assertEqual(target_for(r"C:/ndk",r"C:/ndk/bin/clang.exe",self.record("clang-real.exe")),pathlib.PureWindowsPath(r"C:/ndk/bin/clang-real.exe"))
@@ -49,4 +49,33 @@ class Metadata(unittest.TestCase):
    def open(self,p):raise OSError(5,"synthetic")
   with patch("ndk_input_metadata.API",Fake):d=capture_one(pathlib.Path(r"C:/ndk"),pathlib.Path(r"C:/ndk/tool.exe"))
   self.assertEqual(d["state"],"OS_ACCESS_DENIED_STOP");self.assertFalse(d["qualified"])
+
+ def test_directory_target(self):regular_target([self.row(attrs=0x10)],7,[7,0,9],directory=True)
+ def test_directory_expected_file_rejected(self):
+  with self.assertRaises(AssertionError):regular_target([self.row()],7,[7,0,9],directory=True)
+ def test_expected_sdk_mapping(self):expected_mapping("C:/physical",{"tag":0xA000000C,"relative":False},"C:/physical")
+ def test_changed_sdk_mapping(self):
+  with self.assertRaises(AssertionError):expected_mapping("C:/other",{"tag":0xA000000C,"relative":False},"C:/physical")
+ def test_relative_sdk_mapping_rejected(self):
+  with self.assertRaises(AssertionError):expected_mapping("C:/physical",{"tag":0xA000000C,"relative":True},"C:/physical")
+ @unittest.skipUnless(os.name=="nt","Windows handle metadata model")
+ def test_callback_held_then_revalidated(self):
+  closed=[]
+  class Fake:
+   def __init__(self):self.paths={};self.k=types.SimpleNamespace(CloseHandle=lambda h:(closed.append(h) or True))
+   def open(self,p):h=len(self.paths)+1;self.paths[h]=p;return h
+   def info(self,h):return {"identity":[7,0,h],"attributes":0x20 if self.paths[h].name=="tool.exe" else 0x10,"tag":0,"bytes":0}
+  def callback():self.assertEqual(closed,[])
+  with patch("ndk_input_metadata.API",Fake):d=capture_one(pathlib.Path("C:/ndk"),pathlib.Path("C:/ndk/tool.exe"),callback=callback)
+  self.assertTrue(d["qualified"]);self.assertTrue(d["callbackSucceeded"]);self.assertTrue(closed)
+ @unittest.skipUnless(os.name=="nt","Windows handle metadata model")
+ def test_post_callback_identity_change(self):
+  changed=[False]
+  class Fake:
+   def __init__(self):self.paths={};self.k=types.SimpleNamespace(CloseHandle=lambda h:True)
+   def open(self,p):h=len(self.paths)+1;self.paths[h]=p;return h
+   def info(self,h):return {"identity":[7,0,h+(100 if changed[0] else 0)],"attributes":0x20 if self.paths[h].name=="tool.exe" else 0x10,"tag":0,"bytes":0}
+  with patch("ndk_input_metadata.API",Fake):d=capture_one(pathlib.Path("C:/ndk"),pathlib.Path("C:/ndk/tool.exe"),callback=lambda:changed.__setitem__(0,True))
+  self.assertFalse(d["qualified"]);self.assertEqual(d["reason"],"METADATA_CHANGED")
+
 if __name__=="__main__":unittest.main()

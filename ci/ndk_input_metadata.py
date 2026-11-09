@@ -22,13 +22,16 @@ def target_for(root,link,record):
  return p
 def stable_rows(before,after):
  assert before and len(before)==len(after) and all(a==b for a,b in zip(before,after)),"METADATA_CHANGED"
-def regular_target(rows,volume,link_id):
+def regular_target(rows,volume,link_id,directory=False):
  assert rows,"EMPTY_TARGET_CHAIN"
  for i,row in enumerate(rows):
   assert row["tag"]==0 and not row["attributes"]&0x400,"REPARSE_PHYSICAL_TARGET_CHAIN"
   assert row["identity"][0]==volume,"TARGET_VOLUME_CHANGED"
   if i<len(rows)-1:assert row["attributes"]&0x10,"NON_DIRECTORY_ANCESTOR"
- assert not rows[-1]["attributes"]&0x10 and rows[-1]["identity"]!=link_id,"NOT_DISTINCT_REGULAR_FILE"
+ assert bool(rows[-1]["attributes"]&0x10)==directory and rows[-1]["identity"]!=link_id,"NOT_DISTINCT_EXPECTED_TYPE"
+def expected_mapping(target,record,expected):
+ assert pathlib.PureWindowsPath(target)==pathlib.PureWindowsPath(expected),"SDK_ALIAS_TARGET_CHANGED"
+ assert record["tag"]==0xA000000C and not record["relative"],"EXPECTED_ABSOLUTE_SDK_SYMLINK"
 def safe_target(record):
  name=record["substituteName"]
  if record["relative"] and re.fullmatch(r"[A-Za-z0-9_.+\\/-]{1,240}",name):return name
@@ -62,9 +65,9 @@ class API:
  def raw(self,h):
   b=ctypes.create_string_buffer(MAX_RECORD);n=self.w.DWORD();self.checked(self.k.DeviceIoControl(h,0x000900A8,None,0,b,MAX_RECORD,ctypes.byref(n),None));assert n.value<=MAX_RECORD
   return b.raw[:n.value]
-def capture_one(root,tool):
- started=time.monotonic();api=API();held=[];result={"input":str(tool),"linkFollowed":False,"contentsRead":False,"qualified":False,"closeFailures":0}
- def deadline():assert time.monotonic()-started<5,"METADATA_DEADLINE"
+def capture_one(root,tool,directory=False,expected_target=None,callback=None):
+ started=time.monotonic();metadata_started=started;api=API();held=[];result={"input":str(tool),"linkFollowed":False,"contentsRead":False,"qualified":False,"closeFailures":0,"expectedDirectory":directory,"callbackInvoked":False,"callbackSucceeded":False}
+ def deadline():assert time.monotonic()-metadata_started<5,"METADATA_DEADLINE"
  def chain(path):
   rows=[];handles=[];p=pathlib.Path(path.anchor)
   assert len(path.parts)<=24,"PATH_DEPTH"
@@ -78,21 +81,32 @@ def capture_one(root,tool):
  try:
   before,handles,link=chain(tool)
   if link is None:
-   assert not before[-1]["attributes"]&0x10,"INPUT_NOT_FILE"
+   assert expected_target is None,"EXPECTED_SDK_ALIAS_ABSENT"
+   assert bool(before[-1]["attributes"]&0x10)==directory,"INPUT_TYPE_MISMATCH"
    stable_rows(before,[api.info(h) for h in handles]);result.update(state="REGULAR_INPUT_METADATA",qualified=True,fileIdentity=before[-1]["identity"],bytes=before[-1]["bytes"],tagHex="0x0")
   else:
    row=before[-1];raw=api.raw(handles[-1]);assert raw==api.raw(handles[-1]),"REPARSE_RECORD_CHANGED"
    record=decode_record(raw);assert record["tag"]==row["tag"],"REPARSE_TAG_CHANGED"
    stable_rows(before,[api.info(h) for h in handles])
    result.update(state="CAPTURED_UNQUALIFIED_REPARSE",component=str(link),tagHex=hex(row["tag"]),kind=record["kind"],relative=record["relative"],target=safe_target(record),recordSHA256=hashlib.sha256(raw).hexdigest(),linkIdentity=row["identity"])
-   target=pathlib.Path(target_for(root,link,record));result["independentTarget"]=str(target)
+   target=pathlib.Path(target_for(root,link,record))
+   if expected_target is not None:expected_mapping(target,record,expected_target)
+   result["independentTarget"]=str(target)
    physical,phandles,plink=chain(target)
    assert plink is None,"REPARSE_PHYSICAL_TARGET_CHAIN"
-   regular_target(physical,row["identity"][0],row["identity"])
+   regular_target(physical,row["identity"][0],row["identity"],directory=directory)
    stable_rows(physical,[api.info(h) for h in phandles]);stable_rows(before,[api.info(h) for h in handles]);assert raw==api.raw(handles[-1]),"REPARSE_RECORD_CHANGED";deadline()
    result.update(state="QUALIFIED_INDEPENDENT_PHYSICAL_METADATA",qualified=True,physicalTargetIdentity=physical[-1]["identity"],physicalTargetTagHex="0x0",physicalTargetBytes=physical[-1]["bytes"],physicalAncestorCount=len(physical),physicalAncestorIdentities=[x["identity"] for x in physical])
- except OSError as e:result.update(state="OS_ACCESS_DENIED_STOP" if e.errno==5 else "OS_METADATA_FAILURE_STOP",osError=e.errno)
- except (AssertionError,ValueError,UnicodeError) as e:result.update(state="INTERNAL_METADATA_QUALIFICATION_STOP",reason=str(e)[:120])
+  if callback is not None:
+   result.update(metadataQualifiedBeforeCallback=True,callbackInvoked=True)
+   callback();result["callbackSucceeded"]=True;metadata_started=time.monotonic()
+   stable_rows(before,[api.info(h) for h in handles])
+   if link is not None:
+    regular_target([api.info(h) for h in phandles],row["identity"][0],row["identity"],directory=directory)
+    stable_rows(physical,[api.info(h) for h in phandles]);assert raw==api.raw(handles[-1]),"REPARSE_RECORD_CHANGED"
+   deadline()
+ except OSError as e:result.update(state="OS_ACCESS_DENIED_STOP" if e.errno==5 else "OS_METADATA_FAILURE_STOP",osError=e.errno,qualified=False)
+ except (AssertionError,ValueError,UnicodeError) as e:result.update(state="INTERNAL_METADATA_QUALIFICATION_STOP",reason=str(e)[:120],qualified=False)
  finally:
   for h in reversed(held):
    if not api.k.CloseHandle(h):result["closeFailures"]+=1

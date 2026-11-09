@@ -1,5 +1,5 @@
 import unittest,tarfile,pathlib,os
-from openssl_probe import safe_member,validate_members,configure_args,PREFIX,CHECKSUM,probe_layout,probe_environment,validate_perl_metadata,perl_metadata_program
+from openssl_probe import safe_member,validate_members,configure_args,PREFIX,CHECKSUM,probe_layout,probe_environment,validate_perl_metadata,perl_metadata_program,PHYSICAL_SDK,with_physical_ndk_inputs
 class ProbePolicy(unittest.TestCase):
  def member(self,name,size=1,kind=tarfile.REGTYPE):
   x=tarfile.TarInfo(name);x.size=size;x.type=kind;return x
@@ -65,4 +65,25 @@ class ProbePolicy(unittest.TestCase):
   for i,a in enumerate(roots):
    for b in roots[i+1:]:self.assertFalse(a.is_relative_to(b) or b.is_relative_to(a))
  def test_checksum(self):self.assertEqual(CHECKSUM,"46eb8fb9fb3b61ce1c0f8a026c4c1a0714d3a9e138e7fbde78753ce2babc3846")
+
+ def test_physical_sdk_constant(self):self.assertEqual(PHYSICAL_SDK,pathlib.Path("C:/Program Files (x86)/Android/android-sdk"))
+ def test_physical_lease_order(self):
+  from unittest.mock import patch
+  calls=[];configured=[]
+  def fake(root,tool,**kw):
+   calls.append((root,tool,kw.get("directory"),kw.get("expected_target")))
+   kw["callback"]()
+   return {"qualified":True,"callbackSucceeded":True}
+  with patch("ndk_input_metadata.capture_one",fake),patch("pathlib.Path.read_text",return_value="Pkg.Revision = 30.0.16248370"),patch("pathlib.Path.write_text"),patch("builtins.print"):
+   with_physical_ndk_inputs(None,{},pathlib.Path("D:/synthetic-not-created"),lambda n,t:configured.append((n,t)))
+  self.assertEqual(len(calls),5);self.assertEqual(len(configured),1)
+  self.assertEqual(calls[0][1],pathlib.Path("C:/Android/android-sdk"));self.assertEqual(calls[0][3],PHYSICAL_SDK)
+  self.assertTrue(all(x[1].is_relative_to(PHYSICAL_SDK) for x in calls[1:]))
+ def test_no_configure_before_qualified_mapping(self):
+  from unittest.mock import patch
+  configured=[]
+  with patch("ndk_input_metadata.capture_one",return_value={"qualified":False}),patch("pathlib.Path.write_text"),patch("builtins.print"):
+   with self.assertRaises(AssertionError):with_physical_ndk_inputs(None,{},pathlib.Path("D:/synthetic-not-created"),lambda n,t:configured.append(True))
+  self.assertEqual(configured,[])
+
 if __name__=="__main__":unittest.main()

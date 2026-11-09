@@ -80,6 +80,26 @@ def probe_layout(root):
  roots=[root/name for name in ("openssl-probe-work","openssl-probe-output","openssl-probe-cargo","openssl-probe-rustup")]
  assert all(not a.is_relative_to(b) and not b.is_relative_to(a) for i,a in enumerate(roots) for b in roots[i+1:]),"OVERLAPPING_PROBE_ROOTS"
  return roots
+PHYSICAL_SDK=pathlib.Path(r"C:\Program Files (x86)\Android\android-sdk")
+def with_physical_ndk_inputs(guard,env,out,callback):
+ from ndk_input_metadata import capture_one
+ ndk=PHYSICAL_SDK/"ndk/30.0.16248370";tools=ndk/"toolchains/llvm/prebuilt/windows-x86_64/bin"
+ paths=[ndk/"source.properties",tools/"clang.exe",tools/"llvm-ar.exe",tools/"llvm-ranlib.exe"]
+ rows={}
+ def step(index):
+  if index==len(paths):
+   assert "Pkg.Revision = 30.0.16248370" in paths[0].read_text(encoding="utf-8"),"PINNED_NDK_REVISION"
+   callback(ndk,tools);return
+  p=paths[index];row=capture_one(ndk,p,callback=lambda:step(index+1));rows[p.name]=row
+  assert row["qualified"] and row.get("callbackSucceeded"),"PHYSICAL_NDK_INPUT_OR_CALLBACK_FAILED"
+ try:
+  alias=capture_one(PHYSICAL_SDK,pathlib.Path(r"C:\Android\android-sdk"),directory=True,expected_target=PHYSICAL_SDK,callback=lambda:step(0))
+  rows["sdkAlias"]=alias
+  assert alias["qualified"] and alias.get("callbackSucceeded"),"SDK_MAPPING_OR_CALLBACK_FAILED"
+ finally:
+  report={"state":"PHYSICAL_NDK_LEASE_REPORT","physicalSDK":str(PHYSICAL_SDK),"physicalNDK":str(ndk),"inputs":rows,"aliasTraversed":False,"permissionsChanged":False,"compilerBuildRequested":False}
+  text=json.dumps(report,indent=2)+"\n";assert len(text.encode())<32768;(out/"physical-ndk-qualification.json").write_text(text,encoding="utf-8");print(text,flush=True)
+ return rows
 def main():
  assert os.name=="nt" and os.environ.get("GITHUB_REPOSITORY")=="TroubledPerson/Vibetram" and os.environ.get("GITHUB_REF")=="refs/heads/main"
  event=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
@@ -100,15 +120,14 @@ def main():
  preliminary={"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"metadata":details}
  (out/"installed-perl-metadata.json").write_text(json.dumps(preliminary,indent=2)+"\n",encoding="utf-8")
  validate_perl_metadata(details)
- ndk=pathlib.Path(os.environ["ANDROID_HOME"])/"ndk/30.0.16248370"
- assert "Pkg.Revision = 30.0.16248370" in (ndk/"source.properties").read_text(encoding="utf-8"),"PINNED_NDK_REVISION"
- cross=android_env(env,ndk);cross["OPENSSL_SRC_PERL"]=str(perl);cross["PERL"]=str(perl)
- tools=ndk/"toolchains/llvm/prebuilt/windows-x86_64/bin"
- for p in [tools/"clang.exe",tools/"llvm-ar.exe"]:regular_chain(p)
- cross.update(CC=str(tools/"clang.exe"),CFLAGS="--target=aarch64-linux-android29",AR=str(tools/"llvm-ar.exe"),ARFLAGS="crs",RANLIB=str(tools/"llvm-ranlib.exe"))
+ print("INSTALLED_PERL_METADATA "+json.dumps(preliminary),flush=True)
  src=work/"crate"/PREFIX/"openssl"
- guard.run([perl,"-e","require q(./Configurations/unix-checker.pm);"],cwd=src,env=cross,capture=True,timeout=15)
- result=guard.run([perl,*configure_args((work/"install").as_posix())],cwd=src,env=cross,capture=True,timeout=120)
+ def configure_physical(ndk,tools):
+  cross=android_env(env,ndk);cross["OPENSSL_SRC_PERL"]=str(perl);cross["PERL"]=str(perl)
+  cross.update(CC=str(tools/"clang.exe"),CFLAGS="--target=aarch64-linux-android29",AR=str(tools/"llvm-ar.exe"),ARFLAGS="crs",RANLIB=str(tools/"llvm-ranlib.exe"))
+  guard.run([perl,"-e","require q(./Configurations/unix-checker.pm);"],cwd=src,env=cross,capture=True,timeout=15)
+  guard.run([perl,*configure_args((work/"install").as_posix())],cwd=src,env=cross,capture=True,timeout=120)
+ physical_inputs=with_physical_ndk_inputs(guard,env,out,configure_physical)
  makefile=src/"Makefile";assert makefile.is_file() and makefile.stat().st_size<16*1024**2,"CONFIGURE_MAKEFILE_MISSING"
  text=makefile.read_text(encoding="utf-8")
  assert "PLATFORM=linux-aarch64" in text and "--target=aarch64-linux-android29" in text,"CONFIGURE_TARGET_NOT_PRESERVED"
@@ -117,7 +136,7 @@ def main():
   if p.exists():
    regular_chain(p);v=guard.run([p,"--version"],env=env,capture=True,timeout=15).stdout.splitlines()[0]
    make_candidates.append({"path":str(p),"sha256":sha(p),"version":v})
- report={"state":"PASS_CONFIGURE_ONLY_NOT_COMPILED","gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"perlVersion":details["version"],"perlArch":details["arch"],"perlOS":details["os"],"OpenSSLUnixCheckerPassed":True,"unixPathSemantics":True,"opensslVersion":"3.6.3","crateVersion":VERSION,"archiveSHA256":CHECKSUM,"makefileSHA256":sha(makefile),"makeCandidates":make_candidates,"dependencyVersionsChanged":False,"compiled":False,"signed":False,"releasable":False,"provenance":"Installed Git for Windows on official GitHub hosted Windows image; binary hashes observed, not independent publisher attestation","monitor":guard.report()}
+ report={"state":"PASS_CONFIGURE_ONLY_NOT_COMPILED","physicalInputMetadata":physical_inputs,"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"perlVersion":details["version"],"perlArch":details["arch"],"perlOS":details["os"],"OpenSSLUnixCheckerPassed":True,"unixPathSemantics":True,"opensslVersion":"3.6.3","crateVersion":VERSION,"archiveSHA256":CHECKSUM,"makefileSHA256":sha(makefile),"makeCandidates":make_candidates,"dependencyVersionsChanged":False,"compiled":False,"signed":False,"releasable":False,"provenance":"Installed Git for Windows on official GitHub hosted Windows image; binary hashes observed, not independent publisher attestation","monitor":guard.report()}
  source_check(ROOT);(out/"qualification.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8");print(json.dumps(report,indent=2))
 if __name__=="__main__":
  if len(sys.argv)==3 and sys.argv[1]=="--materialize":materialize(pathlib.Path(sys.argv[2]))
