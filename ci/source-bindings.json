@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "e6a7eae6009da3b0f2bfafec9a13ff822ce8bda7d85d4d46e382ff974a090ecd"
+    "sha256": "7e267ae1740048a1491323551bdb2ace106c47d1bf4d9f8f1172c761f5dc7858"
   },
   {
     "path": ".gitignore",
@@ -196,6 +196,10 @@
     "sha256": "9434cc2adc0afcb2f7a480674c3647c4ce1bd38bafb7dfa31637d862e970f715"
   },
   {
+    "path": "ci/ndk_input_metadata.py",
+    "sha256": "4817a5a5f29b93e44a1d8328f7811183347f9431be628ab0667a2104a71ade60"
+  },
+  {
     "path": "ci/openssl_probe.py",
     "sha256": "5f2c799b8e793034346b5a52e42986d1d5dcb67df7d21b5b6985e1ae32b1a22d"
   },
@@ -258,6 +262,10 @@
   {
     "path": "ci/test_msvc_pins.py",
     "sha256": "aa2a85b6999f9f9a97a00350f3deaea8c4da988fba98093b1ca5dbc38d8e58fd"
+  },
+  {
+    "path": "ci/test_ndk_input_metadata.py",
+    "sha256": "2913043ed4e5893959a1a9c50de03dea30233b7355cbfc5373f1364dbf90d004"
   },
   {
     "path": "ci/test_openssl_probe.py",

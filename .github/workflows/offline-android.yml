@@ -88,6 +88,9 @@
         },
         {
           "run": "python -B ci/test_openssl_probe.py"
+        },
+        {
+          "run": "python -B ci/test_ndk_input_metadata.py"
         }
       ]
     },
@@ -319,6 +322,30 @@
             "if-no-files-found": "warn",
             "retention-days": 3
           }
+        }
+      ]
+    },
+    "ndk-metadata": {
+      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[ndk-metadata-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "needs": [
+        "source-checks"
+      ],
+      "runs-on": "windows-latest",
+      "timeout-minutes": 5,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "No-follow installed NDK metadata only",
+          "timeout-minutes": 2,
+          "run": "python -B ci/ndk_input_metadata.py"
         }
       ]
     }
