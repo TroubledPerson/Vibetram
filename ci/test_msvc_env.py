@@ -1,5 +1,5 @@
-import unittest,struct
-from msvc_env import parse_exports,apply_exports,pe_x64,EXPORTS,discovery_env
+import unittest,struct,pathlib
+from msvc_env import parse_exports,apply_exports,pe_x64,EXPORTS,discovery_env,required_inputs
 class MsvcPolicy(unittest.TestCase):
  def good(self):
   return {'PATH':'official;git','INCLUDE':'sdk','LIB':'libs','LIBPATH':'libs','VCToolsInstallDir':'tools','VCToolsVersion':'14.44.1','WindowsSdkDir':'sdk','WindowsSDKVersion':'10.0.26100.0','VSCMD_ARG_TGT_ARCH':'x64','VSCMD_ARG_HOST_ARCH':'x64'}
@@ -39,4 +39,7 @@ class MsvcPolicy(unittest.TestCase):
   with self.assertRaises(AssertionError):discovery_env({}, {'ProgramData':r'D:\unexpected','ALLUSERSPROFILE':r'C:\ProgramData'})
  def test_identical_prefix_export_repeats_are_idempotent(self):
   self.assertEqual(parse_exports(self.text(self.good())+'\nLIBPATH=libs\nPath=official;git'),self.good())
+ def test_ucrt_headers_are_sdk_inputs(self):
+  files=required_inputs(pathlib.Path('vc'),pathlib.Path('sdk'),'10.0.1.0')
+  self.assertIn(pathlib.Path('sdk/Include/10.0.1.0/ucrt/stdio.h'),files);self.assertIn(pathlib.Path('vc/include/vcruntime.h'),files);self.assertNotIn(pathlib.Path('vc/include/stdio.h'),files)
 if __name__=='__main__':unittest.main()

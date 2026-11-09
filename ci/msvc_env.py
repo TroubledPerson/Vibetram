@@ -24,6 +24,8 @@ def apply_exports(base,exports,link,compiler,archiver):
  out=base.copy();out.update({k:v for k,v in exports.items() if k in EXPORTS})
  out.update(CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=str(link),CC_x86_64_pc_windows_msvc=str(compiler),CXX_x86_64_pc_windows_msvc=str(compiler),AR_x86_64_pc_windows_msvc=str(archiver),HOST_CC=str(compiler),HOST_CXX=str(compiler))
  return out
+def required_inputs(tools,sdk,version):
+ return [tools/'lib/x64/libcmt.lib',sdk/'Lib'/version/'um/x64/kernel32.lib',sdk/'Lib'/version/'ucrt/x64/ucrt.lib',tools/'include/vcruntime.h',sdk/'Include'/version/'ucrt/stdio.h',sdk/'Include'/version/'um/Windows.h']
 def pe_x64(data):
  assert data[:2]==b'MZ' and len(data)>=64,'QUALIFICATION_PE_MISSING';at=struct.unpack_from('<I',data,60)[0]
  assert at+6<=len(data) and data[at:at+4]==b'PE\0\0' and struct.unpack_from('<H',data,at+4)[0]==0x8664,'QUALIFICATION_NOT_X64_PE'
@@ -59,7 +61,8 @@ def qualify_msvc(base,work,guard):
   assert re.fullmatch(r'10\.0\.\d+\.0',sdkversion),'UNEXPECTED_WINDOWS_SDK_IDENTITY'
   bin=tools/'bin/Hostx64/x64';cl=bin/'cl.exe';link=bin/'link.exe';lib=bin/'lib.exe'
   assert all(p.is_file() for p in (cl,link,lib)),'X64_MSVC_EXECUTABLE_MISSING';out['toolIdentities']=identities([cl,link,lib])
-  required=[tools/'lib/x64/libcmt.lib',sdk/'Lib'/sdkversion/'um/x64/kernel32.lib',sdk/'Lib'/sdkversion/'ucrt/x64/ucrt.lib',tools/'include/stdio.h',sdk/'Include'/sdkversion/'um/Windows.h']
+  required=required_inputs(tools,sdk,sdkversion)
+  out.update(installation=raw,toolset=exported['VCToolsVersion'],sdkVersion=sdkversion,explicitLinker=str(link),requiredInputs=[{'relative':str(p.relative_to(tools if p.is_relative_to(tools) else sdk)),'present':p.is_file()} for p in required])
   assert all(p.is_file() for p in required),'MSVC_OR_WINDOWS_SDK_INPUT_MISSING'
   env=apply_exports(base,exported,link,cl,lib)
   assert pathlib.Path(shutil.which('link.exe',path=env['PATH']) or '').resolve()==link.resolve(),'PATH_STILL_RESOLVES_NON_MSVC_LINKER'
