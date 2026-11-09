@@ -1,4 +1,5 @@
 import unittest,pathlib,json,struct
+from build_guard import qualified_license_link,NUCLEO_LICENSE_BLOB,git_blob_identity,normalized_license_blob
 from build_guard import limits,MIN_FREE,MAX_OUTPUT,MAX_SECONDS,MAX_LOG,android_env,clean_env,artifact,test_count,redact
 from cloud_build import elf_check
 class BuildPolicy(unittest.TestCase):
@@ -26,5 +27,17 @@ class BuildPolicy(unittest.TestCase):
   b=bytearray(120);b[:5]=b'\x7fELF\x02';struct.pack_into('<H',b,16,3);struct.pack_into('<H',b,18,183);struct.pack_into('<Q',b,32,64);struct.pack_into('<HH',b,54,56,1);struct.pack_into('<IIQQQQQQ',b,64,1,5,0,0,0,0,0,16384);elf_check(b);struct.pack_into('<Q',b,112,4096)
   with self.assertRaises(AssertionError):elf_check(b)
  def test_redaction(self):self.assertNotIn('sk-'+'a'*30,redact('sk-'+'a'*30))
+ def test_pinned_license_link(self):self.assertTrue(qualified_license_link('git/checkouts/nucleo-a123/4253de9/matcher/LICENSE','../LICENSE',NUCLEO_LICENSE_BLOB))
+ def test_link_wrong_target(self):self.assertFalse(qualified_license_link('git/checkouts/nucleo-a123/4253de9/matcher/LICENSE','../../outside',NUCLEO_LICENSE_BLOB))
+ def test_link_wrong_blob(self):self.assertFalse(qualified_license_link('git/checkouts/nucleo-a123/4253de9/matcher/LICENSE','../LICENSE','0'*40))
+ def test_link_wrong_checkout(self):self.assertFalse(qualified_license_link('git/checkouts/nucleo-a123/deadbee/matcher/LICENSE','../LICENSE',NUCLEO_LICENSE_BLOB))
+ def test_link_wrong_repo(self):self.assertFalse(qualified_license_link('git/checkouts/other-a123/4253de9/matcher/LICENSE','../LICENSE',NUCLEO_LICENSE_BLOB))
+ def test_link_escape(self):self.assertFalse(qualified_license_link('../git/checkouts/nucleo-a123/4253de9/matcher/LICENSE','../LICENSE',NUCLEO_LICENSE_BLOB))
+ def test_link_absolute_target(self):self.assertFalse(qualified_license_link('git/checkouts/nucleo-a123/4253de9/matcher/LICENSE','C:/private',NUCLEO_LICENSE_BLOB))
+ def test_link_windows_separators(self):self.assertTrue(qualified_license_link(chr(92).join(('git','checkouts','nucleo-a123','4253de9','matcher','LICENSE')),'..'+chr(92)+'LICENSE',NUCLEO_LICENSE_BLOB))
+ def test_git_blob_known_vector(self):self.assertEqual(git_blob_identity(b'hello'+bytes([10])),'ce013625030ba8dba906f756967f9e9ca394464a')
+ def test_license_line_endings_only(self):self.assertEqual(normalized_license_blob(b'hello'+bytes([13,10])),normalized_license_blob(b'hello'+bytes([10])));self.assertNotEqual(normalized_license_blob(b'hello '),normalized_license_blob(b'hello'))
+ def test_license_non_utf8_rejected(self):
+  with self.assertRaises(UnicodeDecodeError):normalized_license_blob(bytes([255]))
 if __name__=='__main__':unittest.main()
 

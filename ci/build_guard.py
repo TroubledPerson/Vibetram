@@ -1,9 +1,19 @@
 """Monitored hosted unsigned-trial helpers; no signing or credential access."""
-import pathlib,os,subprocess,time,shutil,json,re
+import pathlib,os,subprocess,time,shutil,json,re,hashlib
 MIN_FREE=40*1024**3
 MAX_OUTPUT=64*1024**3
 MAX_SECONDS=5400
 MAX_LOG=64*1024**2
+NUCLEO_COMMIT='4253de9faabb4e5c6d81d946a5e35a90f87347ee'
+NUCLEO_LICENSE_BLOB='a612ad9813b006ce81d1ee438dd784da99a54007'
+def qualified_license_link(relative,target,license_blob):
+ parts=pathlib.PurePosixPath(relative.replace(chr(92),'/')).parts
+ return (len(parts)==6 and parts[:2]==('git','checkouts') and re.fullmatch(r'nucleo-[0-9a-f]+',parts[2]) is not None and len(parts[3])>=7 and NUCLEO_COMMIT.startswith(parts[3]) and parts[4:]==('matcher','LICENSE') and target.replace(chr(92),'/')=='../LICENSE' and license_blob==NUCLEO_LICENSE_BLOB)
+def git_blob_identity(data):
+ return hashlib.sha1(b'blob '+str(len(data)).encode()+bytes([0])+data).hexdigest()
+def normalized_license_blob(data):
+ data.decode('utf-8')
+ return git_blob_identity(data.replace(bytes([13,10]),bytes([10])))
 def limits(free,used,elapsed,log):
  if free<MIN_FREE:return 'FREE_SPACE_GUARD'
  if used>MAX_OUTPUT:return 'OUTPUT_THRESHOLD'
@@ -41,17 +51,31 @@ class Guard:
   self.root=root;self.work=work;self.out=out;self.env=env;self.start=time.monotonic();self.count=0;self.peak=0;self.races=0
   self.roots=[work,out,pathlib.Path(env['CARGO_HOME']),pathlib.Path(env['RUSTUP_HOME'])]
   assert shutil.disk_usage(root).free>=MIN_FREE+MAX_OUTPUT,'INSUFFICIENT_INITIAL_TRIAL_RESERVATION'
-  self.commands=[];self.check()
+  self.qualified_links=set();self.commands=[];self.check()
  def size(self):
   total=0
   for root in self.roots:
    if not root.exists():continue
    for folder,dirs,files in os.walk(root,followlinks=False):
+    for name in dirs:
+     d=pathlib.Path(folder)/name
+     assert not d.is_symlink() and not d.is_junction(),'UNQUALIFIED_OUTPUT_DIRECTORY_LINK:'+str(d.relative_to(root))
     for name in files:
      p=pathlib.Path(folder)/name
      try:
-      assert not p.is_symlink(),'UNEXPECTED_OUTPUT_LINK'
-      total+=p.stat().st_size
+      if p.is_symlink():
+       cargo=pathlib.Path(self.env['CARGO_HOME']);relative=p.relative_to(cargo).as_posix();target=os.readlink(p)
+       assert qualified_license_link(relative,target,NUCLEO_LICENSE_BLOB),'UNQUALIFIED_OUTPUT_FILE_LINK:'+relative
+       sibling=p.parent.parent/'LICENSE';assert sibling.is_file() and not sibling.is_symlink(),'PINNED_LICENSE_TARGET_NOT_REGULAR'
+       for ancestor in sibling.parents:
+        assert not ancestor.is_symlink() and not ancestor.is_junction(),'PINNED_LICENSE_ANCESTOR_LINK'
+        if ancestor==cargo:break
+       assert sibling.stat().st_size<=32768,'PINNED_LICENSE_SIZE_LIMIT'
+       data=sibling.read_bytes();assert len(data.replace(bytes([13,10]),bytes([10])))==16725,'PINNED_LICENSE_SIZE_CHANGED';blob=normalized_license_blob(data)
+       assert qualified_license_link(relative,target,blob),'PINNED_LICENSE_IDENTITY_CHANGED'
+       total+=max(4096,p.lstat().st_size)
+       self.qualified_links.add(relative)
+      else:total+=p.stat().st_size
      except FileNotFoundError:self.races+=1
   return total
  def check(self,log=0):
@@ -60,7 +84,7 @@ class Guard:
   assert not reason,reason
   return elapsed,used
  def report(self):
-  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'snapshotDisappearanceRaces':self.races,'hardCumulativeWriteQuota':False,'commands':self.commands,'signed':False,'releasable':False}
+  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'snapshotDisappearanceRaces':self.races,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'commands':self.commands,'signed':False,'releasable':False}
  def run(self,args,cwd=None,env=None,capture=False):
   self.check();self.count+=1;index=self.count;label=pathlib.Path(str(args[0])).name
   stdout=self.work/f'command-{index:02d}.stdout.log';stderr=self.work/f'command-{index:02d}.stderr.log'
