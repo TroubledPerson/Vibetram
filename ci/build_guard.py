@@ -1,5 +1,6 @@
 """Monitored hosted unsigned-trial helpers; no signing or credential access."""
 import pathlib,os,subprocess,time,shutil,json,re,hashlib
+from reparse_metadata import capture as capture_reparse_metadata
 MIN_FREE=40*1024**3
 MAX_OUTPUT=64*1024**3
 MAX_SECONDS=5400
@@ -60,7 +61,7 @@ class Guard:
   self.root=root;self.work=work;self.out=out;self.env=env;self.start=time.monotonic();self.count=0;self.peak=0;self.races=0
   self.roots=[work,out,pathlib.Path(env['CARGO_HOME']),pathlib.Path(env['RUSTUP_HOME'])]
   assert shutil.disk_usage(root).free>=MIN_FREE+MAX_OUTPUT,'INSUFFICIENT_INITIAL_TRIAL_RESERVATION'
-  self.qualified_links=set();self.commands=[];self.check()
+  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.check()
  def size(self):
   total=0
   for root in self.roots:
@@ -68,7 +69,9 @@ class Guard:
    for folder,dirs,files in os.walk(root,followlinks=False):
     for name in dirs:
      d=pathlib.Path(folder)/name
-     assert not d.is_symlink() and not d.is_junction(),'UNQUALIFIED_OUTPUT_DIRECTORY_LINK:'+str(d.relative_to(root))
+     if d.is_symlink() or d.is_junction():
+      self.pending_reparse=(root,d.relative_to(root))
+      raise AssertionError('UNQUALIFIED_OUTPUT_DIRECTORY_LINK:'+str(d.relative_to(root)))
     for name in files:
      p=pathlib.Path(folder)/name
      try:
@@ -118,6 +121,13 @@ class Guard:
    if proc and proc.poll() is None:
     subprocess.run([str(pathlib.Path(os.environ['SystemRoot'])/'System32/taskkill.exe'),'/PID',str(proc.pid),'/T','/F'],capture_output=True,timeout=20)
     proc.wait(timeout=10)
+   if self.pending_reparse and self.reparse_result is None:
+    root,relative=self.pending_reparse
+    self.reparse_result=capture_reparse_metadata(root,relative)
+    self.reparse_result.update(commandStage=index,observedDuringTool=label,phaseProcessId=proc.pid if proc else None,creatorProcessProven=False,childStoppedBeforeMetadata=proc is None or proc.poll() is not None)
+    payload=json.dumps(self.reparse_result,indent=2);assert len(payload.encode())<=65536 and shutil.disk_usage(self.root).free>=MIN_FREE,'METADATA_REPORT_BOUND'
+    with (self.work/'reparse-stop.json').open('x',encoding='utf-8') as f:f.write(payload)
+    print('REPARSE_METADATA_STOP '+json.dumps(self.reparse_result),flush=True)
    tails={}
    for name,path in [('stdoutTail',stdout),('stderrTail',stderr)]:
     if path.exists():
