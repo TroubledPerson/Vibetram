@@ -15,3 +15,9 @@ Publication used the already authenticated GitHub Desktop session. The separate 
 ## Read-only hosted preflight implemented
 
 A standard-free Windows runner now inventories disk/RAM, exact installed toolchains and required paths after source checks. It performs no installs, native compilation, cleanup or signing. Its JSON artifact/summary explicitly reports qualification separately from successful inventory execution. The existing40GiB guard and pinned versions are unchanged; native qualification also requires the preflight output to be true and an explicit manual compile request. The first exact preflight result is pending this commit's hosted run.
+
+## Explicit pinned Rust provisioning trial
+
+A trusted main push whose commit message includes `[provision-rust195]` may explicitly install1.95.0, clippy/rustfmt/rust-src and the Android ARM64 standard library from the official Rust distribution, in fresh job-private storage. It uses the existing runner rustup, no self-update, no credentials, a600-second process limit, two IO/download workers and512MiB unpacking hint. Monitored output is8GiB with a4MiB log threshold; this is not a kernel or cumulative-write quota. At least48GiB must be free before setup, retaining the40GiB guard throughout. No manual cleanup or native compilation occurs. Later preflight in the SAME job must verify exact inputs. Another build job gets a new VM and must prepare/recheck its own tools; it cannot reuse this job's qualification by assumption. Native qualification is temporarily disabled even if the preflight succeeds, pending review of its result. Signing/release remain disabled.
+
+Official references: [Rust1.95 release](https://blog.rust-lang.org/2026/04/16/Rust-1.95.0/), [rustup environment controls](https://rust-lang.github.io/rustup/environment-variables.html), [profiles](https://rust-lang.github.io/rustup/concepts/profiles.html). No installer or compiler was run locally.

@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "829fd15be5bde39cf8d3ff7b87bc3436ae9f6f8d70cd0c13bd524bbc0bfa3d1e"
+    "sha256": "2bf5b0c0d2245cf9c64d8e4e7287232bc5b6bbe2d8787059c625295465fea8f1"
   },
   {
     "path": "ASSET_EXCLUSIONS.json",
@@ -33,7 +33,7 @@
   },
   {
     "path": "CI_STATUS.md",
-    "sha256": "0a6e70f30b11ebd6ef7abab80082de83f520b2daff0ac53554f549868fa16bb3"
+    "sha256": "a8c0f7be8ad50c9ce1efdb249300fbc7a48db62823181b1b05d5f381f12d49dd"
   },
   {
     "path": "DEPENDENCIES.md",
@@ -160,12 +160,20 @@
     "sha256": "a1652f8557bd0e9253af0b3b1d68da1b7f27f25965cd2ba1639797a40c2eac77"
   },
   {
+    "path": "ci/provision_rust.py",
+    "sha256": "09e2192dd233eacbe7a8745ad601a2e095f3f8a7f2e176abac65498bbf637b1d"
+  },
+  {
     "path": "ci/publication-policy.json",
     "sha256": "23ade42e9f3e6e5837ae8dba45d19cbb563be38539f026e205c0a455cd9b6b3d"
   },
   {
     "path": "ci/runner_preflight.py",
-    "sha256": "67b6f4c7208101e3bb5c98d34af560e399f04b5f1059a600945fb41a21c1491e"
+    "sha256": "011beaf048d458db9f1892e80dfa6cf3cb6b8ec7eee57a3c548648e0b8e7717d"
+  },
+  {
+    "path": "ci/test_provision_rust.py",
+    "sha256": "b49ca7f73e0536c53fe3f61d63da4d4ce094dfbef91e99d770760d37ebdf9698"
   },
   {
     "path": "ci/test_runner_preflight.py",

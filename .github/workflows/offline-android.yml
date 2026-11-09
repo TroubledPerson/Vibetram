@@ -46,11 +46,14 @@
         },
         {
           "run": "python -B ci/test_runner_preflight.py"
+        },
+        {
+          "run": "python -B ci/test_provision_rust.py"
         }
       ]
     },
     "unsigned-qualification": {
-      "if": "github.event_name == 'workflow_dispatch' && inputs.compile_native && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram' && needs.runner-preflight.outputs.qualified == 'true'",
+      "if": "${{ false }}",
       "needs": [
         "source-checks",
         "runner-preflight"
@@ -98,7 +101,7 @@
       "if": "github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
       "needs": "source-checks",
       "runs-on": "windows-latest",
-      "timeout-minutes": 5,
+      "timeout-minutes": 15,
       "permissions": {
         "contents": "read"
       },
@@ -113,6 +116,12 @@
           }
         },
         {
+          "name": "Explicit pinned Rust setup (trusted provisioning commit only)",
+          "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[provision-rust195]')",
+          "timeout-minutes": 12,
+          "run": "python -B ci/provision_rust.py"
+        },
+        {
           "id": "inspect",
           "run": "python -B ci/runner_preflight.py"
         },
@@ -122,6 +131,16 @@
             "name": "runner-preflight-${{ github.sha }}",
             "path": "preflight-output/runner-preflight.json",
             "if-no-files-found": "error",
+            "retention-days": 3
+          }
+        },
+        {
+          "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
+          "if": "always() && github.event_name == 'push' && contains(github.event.head_commit.message, '[provision-rust195]')",
+          "with": {
+            "name": "rust-provisioning-${{ github.sha }}",
+            "path": "provision-output/provisioning.json",
+            "if-no-files-found": "warn",
             "retention-days": 3
           }
         }
