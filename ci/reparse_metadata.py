@@ -50,9 +50,9 @@ def stable_record(before,after):
  assert before==after,'REPARSE_DATA_RACE'
 def os_failure(code):
  return {'state':'OS_ACCESS_DENIED_STOP' if code==5 else 'OS_METADATA_UNAVAILABLE_STOP','osError':code,'targetOpened':False}
-def capture(root,relative):
+def capture(root,relative,callback=None):
  result={'state':'UNQUALIFIED_METADATA_ONLY_STOP','relativePath':str(relative).replace(chr(92),'/'),'targetOpened':False,'targetContentsRead':False,'targetMetadataOpenedIndependently':False,'physicalTargetMetadataQualified':False,'linkTraversed':False,'permissionsChanged':False,'accountingRuleChanged':False}
- handles=[];start=time.monotonic()
+ handles=[];start=time.monotonic();callback_error=None
  try:
   assert os.name=='nt','WINDOWS_METADATA_ONLY'
   root=pathlib.Path(root);rel=pathlib.PureWindowsPath(relative)
@@ -80,7 +80,9 @@ def capture(root,relative):
    assert time.monotonic()-start<5,'METADATA_DEADLINE'
    if index:path=path/part
    handle=kernel.CreateFileW(str(path),0,1,None,3,0x02200000,None)
-   if handle==ctypes.c_void_p(-1).value:raise OSError(ctypes.get_last_error(),'METADATA_OPEN_FAILED')
+   if handle==ctypes.c_void_p(-1).value:
+    result['missingUnderOwnedRoot']=path.is_relative_to(root) and path!=root
+    raise OSError(ctypes.get_last_error(),'METADATA_OPEN_FAILED')
    handles.append(handle);row=info(handle);before.append(row);assert row['attributes']&0x10,'NON_DIRECTORY_METADATA_PATH'
    if index<len(full.parts)-1:assert row['tag']==0 and not row['attributes']&0x400,'REPARSE_ANCESTOR_FATAL'
   row=before[-1];assert row['attributes']&0x400 and row['tag'],'OBJECT_NO_LONGER_REPARSE'
@@ -111,10 +113,24 @@ def capture(root,relative):
   stable(target_before,target_after);stable(before,[info(h) for h in source_handles]);stable_record(raw,record())
   result.update(state='CAPTURED_ALIAS_AND_REGULAR_TARGET_METADATA_STOP',physicalTargetMetadataQualified=True,physicalTargetRelative=target_relative,physicalTargetIdentity=target_before[-1]['identity'],physicalTargetTagHex=hex(target_before[-1]['tag']),physicalAncestorCount=len(target_before),physicalAncestors=[{'depth':i,'identity':r['identity'],'tagHex':hex(r['tag']),'attributes':hex(r['attributes'])} for i,r in enumerate(target_before)],targetContentsRead=False,accountingRuleChanged=False)
 
+  if callback is not None:
+   try:result['accountedBytes']=callback(result)
+   except BaseException as error:callback_error=error;raise
+   assert type(result['accountedBytes']) is int and result['accountedBytes']>=0,'INVALID_LEASED_ACCOUNTING_RESULT'
+   assert time.monotonic()-start<5,'ALIAS_VALIDATED_SCAN_DEADLINE'
+   regular_chain([info(h) for h in target_handles],row['identity'][0],row['identity'])
+   stable(target_before,[info(h) for h in target_handles]);stable(before,[info(h) for h in source_handles]);stable_record(raw,record())
+   result.update(state='PASS_EXACT_ALIAS_LEASED_ACCOUNTING_METADATA',leasedScanCompleted=True,targetTreeEnumeratedIndependently=True)
+
  except OSError as error:
+  if callback_error is not None:raise
   failure=os_failure(error.errno or 0);failure.pop('targetOpened',None);result.update(failure)
- except (AssertionError,UnicodeError,struct.error) as error:result.update(state='UNQUALIFIED_OR_MALFORMED_METADATA_STOP',reason=str(error)[:120])
- except Exception as error:result.update(state='METADATA_COLLECTOR_FAILED_STOP',reason=type(error).__name__)
+ except (AssertionError,UnicodeError,struct.error) as error:
+  if callback_error is not None:raise
+  result.update(state='UNQUALIFIED_OR_MALFORMED_METADATA_STOP',reason=str(error)[:120])
+ except Exception as error:
+  if callback_error is not None:raise
+  result.update(state='METADATA_COLLECTOR_FAILED_STOP',reason=type(error).__name__)
  finally:
   for handle in reversed(handles):kernel.CloseHandle(handle)
   result['elapsedMilliseconds']=round((time.monotonic()-start)*1000,3)
