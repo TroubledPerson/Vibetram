@@ -1,4 +1,4 @@
-"""Read only a stopped job-owned reparse object's metadata; never open its target."""
+"""Read stopped job-owned link and exact physical-target metadata; never traverse the alias."""
 import pathlib,ntpath,struct,hashlib,time,os,ctypes
 MOUNT_POINT=0xA0000003;SYMLINK=0xA000000C;MAX_RECORD=16384
 def decode_record(raw):
@@ -28,6 +28,22 @@ def classify_target(record,root,link):
  if p==link or p in link.parents:return {'targetClass':'SELF_OR_ANCESTOR_CYCLE_FATAL','targetSHA256':hashlib.sha256(record['substituteName'].encode('utf-16-le')).hexdigest()}
  if not p.is_relative_to(root):return {'targetClass':'EXTERNAL_TARGET_FATAL','targetVolume':p.drive,'targetSHA256':hashlib.sha256(record['substituteName'].encode('utf-16-le')).hexdigest()}
  return {'targetClass':'INTERNAL_LEXICAL_ONLY_NOT_QUALIFIED','targetJobRelative':p.relative_to(root).as_posix(),'substituteName':record['substituteName'],'printName':record['printName']}
+EXPECTED_ALIAS='profile/AppData/Local/Microsoft/Windows/INetCache/Content.IE5'
+EXPECTED_TARGET='profile/AppData/Local/Microsoft/Windows/INetCache/IE'
+def exact_target_relative(record,classification,relative):
+ assert record['tag']==MOUNT_POINT and not record['relative'],'EXPECTED_ABSOLUTE_JUNCTION_REQUIRED'
+ assert pathlib.PureWindowsPath(relative)==pathlib.PureWindowsPath(EXPECTED_ALIAS),'UNAPPROVED_ALIAS_PATH'
+ assert classification.get('targetClass')=='INTERNAL_LEXICAL_ONLY_NOT_QUALIFIED' and pathlib.PureWindowsPath(classification.get('targetJobRelative',''))==pathlib.PureWindowsPath(EXPECTED_TARGET),'UNAPPROVED_PHYSICAL_TARGET'
+ return EXPECTED_TARGET
+def regular_chain(rows,volume,link_identity):
+ assert rows,'EMPTY_PHYSICAL_TARGET_CHAIN'
+ identities=[]
+ for row in rows:
+  assert row['tag']==0 and not row['attributes']&0x400 and row['attributes']&0x10,'REPARSE_OR_NON_DIRECTORY_PHYSICAL_TARGET_CHAIN'
+  assert row['identity'][0]==volume and row['identity']!=link_identity,'PHYSICAL_TARGET_VOLUME_OR_ALIAS_IDENTITY_MISMATCH'
+  identities.append(tuple(row['identity']))
+ assert len(identities)==len(set(identities)),'PHYSICAL_TARGET_IDENTITY_CYCLE'
+
 def stable(before,after):
  assert len(before)==len(after) and all((a['identity'],a['tag'])==(b['identity'],b['tag']) for a,b in zip(before,after)),'METADATA_IDENTITY_OR_TAG_RACE'
 def stable_record(before,after):
@@ -35,7 +51,7 @@ def stable_record(before,after):
 def os_failure(code):
  return {'state':'OS_ACCESS_DENIED_STOP' if code==5 else 'OS_METADATA_UNAVAILABLE_STOP','osError':code,'targetOpened':False}
 def capture(root,relative):
- result={'state':'UNQUALIFIED_METADATA_ONLY_STOP','relativePath':str(relative).replace(chr(92),'/'),'targetOpened':False,'linkTraversed':False,'permissionsChanged':False,'accountingRuleChanged':False}
+ result={'state':'UNQUALIFIED_METADATA_ONLY_STOP','relativePath':str(relative).replace(chr(92),'/'),'targetOpened':False,'targetContentsRead':False,'targetMetadataOpenedIndependently':False,'physicalTargetMetadataQualified':False,'linkTraversed':False,'permissionsChanged':False,'accountingRuleChanged':False}
  handles=[];start=time.monotonic()
  try:
   assert os.name=='nt','WINDOWS_METADATA_ONLY'
@@ -69,14 +85,34 @@ def capture(root,relative):
    if index<len(full.parts)-1:assert row['tag']==0 and not row['attributes']&0x400,'REPARSE_ANCESTOR_FATAL'
   row=before[-1];assert row['attributes']&0x400 and row['tag'],'OBJECT_NO_LONGER_REPARSE'
   result.update(reparseTagHex=hex(row['tag']),attributeFlags=hex(row['attributes']),fileIdentity=row['identity'],createdFileTime=row['createdFileTime'],writtenFileTime=row['writtenFileTime'])
+  link_handle=handles[-1];source_handles=list(handles)
   def record():
-   buffer=ctypes.create_string_buffer(MAX_RECORD);count=w.DWORD();checked(kernel.DeviceIoControl(handles[-1],0x000900A8,None,0,buffer,MAX_RECORD,ctypes.byref(count),None));assert count.value<=MAX_RECORD;return buffer.raw[:count.value]
+   buffer=ctypes.create_string_buffer(MAX_RECORD);count=w.DWORD();checked(kernel.DeviceIoControl(link_handle,0x000900A8,None,0,buffer,MAX_RECORD,ctypes.byref(count),None));assert count.value<=MAX_RECORD;return buffer.raw[:count.value]
   raw=record();stable_record(raw,record());stable(before,[info(h) for h in handles])
   result.update(rawRecordBytes=len(raw),rawRecordSHA256=hashlib.sha256(raw).hexdigest())
   decoded=decode_record(raw);assert decoded['tag']==row['tag'],'REPARSE_TAG_RECORD_MISMATCH'
-  result.update(kind=decoded['kind'],relativeTarget=decoded['relative'],**classify_target(decoded,root,full))
+  classification=classify_target(decoded,root,full)
+  result.update(kind=decoded['kind'],relativeTarget=decoded['relative'],**classification)
   result['state']='CAPTURED_UNQUALIFIED_METADATA_STOP'
- except OSError as error:result.update(os_failure(error.errno or 0))
+  target_relative=exact_target_relative(decoded,classification,relative)
+  physical=root.joinpath(*pathlib.PurePosixPath(target_relative).parts)
+  assert physical.is_relative_to(root) and physical!=full,'PHYSICAL_TARGET_SCOPE'
+  target_handles=[];target_before=[];path=pathlib.Path(physical.anchor)
+  # Open only independently constructed regular path components, never Content.IE5.
+  for index,part in enumerate(physical.parts):
+   assert time.monotonic()-start<5,'METADATA_DEADLINE'
+   if index:path=path/part
+   handle=kernel.CreateFileW(str(path),0,1,None,3,0x02200000,None)
+   if handle==ctypes.c_void_p(-1).value:raise OSError(ctypes.get_last_error(),'PHYSICAL_TARGET_METADATA_OPEN_FAILED')
+   handles.append(handle);target_handles.append(handle);target_before.append(info(handle))
+   regular_chain(target_before,row['identity'][0],row['identity'])
+  result['targetOpened']=True;result['targetMetadataOpenedIndependently']=True
+  target_after=[info(h) for h in target_handles];regular_chain(target_after,row['identity'][0],row['identity'])
+  stable(target_before,target_after);stable(before,[info(h) for h in source_handles]);stable_record(raw,record())
+  result.update(state='CAPTURED_ALIAS_AND_REGULAR_TARGET_METADATA_STOP',physicalTargetMetadataQualified=True,physicalTargetRelative=target_relative,physicalTargetIdentity=target_before[-1]['identity'],physicalTargetTagHex=hex(target_before[-1]['tag']),physicalAncestorCount=len(target_before),physicalAncestors=[{'depth':i,'identity':r['identity'],'tagHex':hex(r['tag']),'attributes':hex(r['attributes'])} for i,r in enumerate(target_before)],targetContentsRead=False,accountingRuleChanged=False)
+
+ except OSError as error:
+  failure=os_failure(error.errno or 0);failure.pop('targetOpened',None);result.update(failure)
  except (AssertionError,UnicodeError,struct.error) as error:result.update(state='UNQUALIFIED_OR_MALFORMED_METADATA_STOP',reason=str(error)[:120])
  except Exception as error:result.update(state='METADATA_COLLECTOR_FAILED_STOP',reason=type(error).__name__)
  finally:

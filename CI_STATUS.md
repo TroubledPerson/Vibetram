@@ -87,3 +87,9 @@ The monitor still fails immediately on every unknown directory link. After its a
 Records are bounded to16KiB of reparse data and64KiB public-safe JSON, with a checked5-second metadata budget. Unknown tags, malformed data, target escapes, self/ancestor cycles and races remain unqualified. Internal-looking targets are lexical candidates only, never permission to traverse or exclude them. External target strings are minimized to class/volume/hash. File timestamps and the active phase/PID establish correlation, not proven creator attribution.
 
 One instrumented tiny-only hosted probe may run. The full Cargo/native-application job and Release remain disabled for its commit. No accounting exception is introduced; all existing dependencies, floors, time/output guards and failure evidence are retained.
+
+## Independent physical IE directory qualification
+
+Instrumented probe42650152605 captured Content.IE5 as mount-point tag0xa0000003 with stored target IE inside the same job work root, without traversing it. This proves target text, not target-directory regularity or creator attribution.
+
+A next tiny-only probe adds independently constructed physical-path metadata opens for precisely the observed INetCache/IE location. Every component must be a regular directory, same volume, with stable unique file identities; any reparse ancestor, conflicting alias identity, access/sharing failure, race or different mapping stays fatal. Link metadata is rechecked after the physical query. No target contents are read or enumerated and no accounting exception is added. Successful target metadata would support designing a future exact alias rule, not silently enable compilation or establish whole-profile write confinement. Security-alert inspection is outside this work and unresolved publication concerns still bar release.

@@ -33,7 +33,7 @@
   },
   {
     "path": "CI_STATUS.md",
-    "sha256": "f87f74d534a9f7a92191138bf2ea9bc32c9ad78eb9b6e5d8c2d96f9765caeb96"
+    "sha256": "3d85cb0801e259a43aaf0b79b200d2630285b7f61f3bc2cfcc872f017eb497ab"
   },
   {
     "path": "DEPENDENCIES.md",
@@ -185,7 +185,7 @@
   },
   {
     "path": "ci/reparse_metadata.py",
-    "sha256": "3b0bc0c83fdb45ca7704edb88f98161d0e9a2165a1f563ab7cc1382e7de4ea37"
+    "sha256": "bbe343651ede255039fdc52066d648acab618f9d8a759e6fe631711ddd66366e"
   },
   {
     "path": "ci/runner_preflight.py",
@@ -213,7 +213,7 @@
   },
   {
     "path": "ci/test_reparse_metadata.py",
-    "sha256": "871d7d4202308aa91631560e2c24ba80b35ed8a595855b347583fb570fb83534"
+    "sha256": "bc74b25d15ab5cb94222bb91b3365d159e7863928fccd8de7a476c641b590431"
   },
   {
     "path": "ci/test_runner_preflight.py",

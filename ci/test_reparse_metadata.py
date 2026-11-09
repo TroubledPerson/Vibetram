@@ -1,5 +1,5 @@
 import unittest,struct
-from reparse_metadata import decode_record,classify_target,stable,stable_record,os_failure,MOUNT_POINT,SYMLINK
+from reparse_metadata import decode_record,classify_target,stable,stable_record,os_failure,MOUNT_POINT,SYMLINK,exact_target_relative,regular_chain,EXPECTED_ALIAS,EXPECTED_TARGET
 def fixture(substitute,printed='',tag=MOUNT_POINT,flags=0):
  a=substitute.encode('utf-16-le');b=printed.encode('utf-16-le');body=struct.pack('<HHHH',0,len(a),len(a),len(b))+(struct.pack('<I',flags) if tag==SYMLINK else b'')+a+b
  return struct.pack('<IHH',tag,len(body),0)+body
@@ -47,4 +47,27 @@ class ReparseMetadata(unittest.TestCase):
   self.assertEqual(a['targetClass'],'INTERNAL_LEXICAL_ONLY_NOT_QUALIFIED');self.assertEqual(b['targetClass'],'INTERNAL_LEXICAL_ONLY_NOT_QUALIFIED')
  def test_access_denied_fatal(self):self.assertEqual(os_failure(5)['state'],'OS_ACCESS_DENIED_STOP')
  def test_sharing_conflict_fatal(self):self.assertEqual(os_failure(32)['state'],'OS_METADATA_UNAVAILABLE_STOP')
+ def test_exact_expected_alias_mapping(self):
+  decoded=decode_record(fixture(r'\??\D:\job\work\profile\AppData\Local\Microsoft\Windows\INetCache\IE'))
+  classification=classify_target(decoded,self.root,r'D:\job\work\profile\AppData\Local\Microsoft\Windows\INetCache\Content.IE5')
+  self.assertEqual(exact_target_relative(decoded,classification,EXPECTED_ALIAS),EXPECTED_TARGET)
+ def test_other_internal_alias_not_qualified(self):
+  with self.assertRaises(AssertionError):exact_target_relative({'tag':MOUNT_POINT,'relative':False},{'targetClass':'INTERNAL_LEXICAL_ONLY_NOT_QUALIFIED','targetJobRelative':EXPECTED_TARGET},'other/Content.IE5')
+ def test_other_internal_target_not_qualified(self):
+  with self.assertRaises(AssertionError):exact_target_relative({'tag':MOUNT_POINT,'relative':False},{'targetClass':'INTERNAL_LEXICAL_ONLY_NOT_QUALIFIED','targetJobRelative':'other/IE'},EXPECTED_ALIAS)
+ def rows(self):return [{'identity':[1,0,i],'tag':0,'attributes':16} for i in (1,2,3)]
+ def test_regular_same_volume_chain(self):regular_chain(self.rows(),1,[1,0,4])
+ def test_physical_reparse_ancestor_fatal(self):
+  rows=self.rows();rows[1]['tag']=MOUNT_POINT
+  with self.assertRaises(AssertionError):regular_chain(rows,1,[1,0,4])
+ def test_physical_reparse_attribute_fatal(self):
+  rows=self.rows();rows[-1]['attributes']|=0x400
+  with self.assertRaises(AssertionError):regular_chain(rows,1,[1,0,4])
+ def test_physical_cross_volume_fatal(self):
+  with self.assertRaises(AssertionError):regular_chain(self.rows(),2,[2,0,4])
+ def test_physical_identity_cycle_fatal(self):
+  rows=self.rows();rows[-1]['identity']=rows[0]['identity']
+  with self.assertRaises(AssertionError):regular_chain(rows,1,[1,0,4])
+ def test_physical_alias_identity_fatal(self):
+  with self.assertRaises(AssertionError):regular_chain(self.rows(),1,[1,0,3])
 if __name__=='__main__':unittest.main()
