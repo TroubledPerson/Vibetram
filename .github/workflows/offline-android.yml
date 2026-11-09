@@ -52,6 +52,9 @@
         },
         {
           "run": "python -B ci/test_build_guard.py"
+        },
+        {
+          "run": "python -B ci/test_lock_diagnostic.py"
         }
       ]
     },
@@ -161,6 +164,47 @@
           "with": {
             "name": "rust-provisioning-${{ github.sha }}",
             "path": "provision-output/provisioning.json",
+            "if-no-files-found": "warn",
+            "retention-days": 3
+          }
+        }
+      ]
+    },
+    "lock-diagnostic": {
+      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[lock-diagnostic-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "needs": "source-checks",
+      "runs-on": "windows-latest",
+      "timeout-minutes": 25,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Provision pinned metadata toolchain",
+          "timeout-minutes": 12,
+          "run": "python -B ci/provision_rust.py"
+        },
+        {
+          "name": "Require this diagnostic VM prerequisites",
+          "run": "python -B ci/runner_preflight.py --require-qualified"
+        },
+        {
+          "name": "No-compile disposable lock and pinned-link diagnosis",
+          "timeout-minutes": 12,
+          "run": "python -B ci/lock_diagnostic.py"
+        },
+        {
+          "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
+          "if": "always()",
+          "with": {
+            "name": "lock-diagnostic-${{ github.sha }}",
+            "path": "lock-diagnostic-output/*\npreflight-output/*.json\nprovision-output/*.json",
             "if-no-files-found": "warn",
             "retention-days": 3
           }

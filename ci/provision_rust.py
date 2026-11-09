@@ -27,7 +27,7 @@ def size(root):
 def main():
  assert os.name=='nt' and os.environ.get('GITHUB_REPOSITORY')=='TroubledPerson/Vibetram' and os.environ.get('GITHUB_REF')=='refs/heads/main'
  assert os.environ.get('GITHUB_EVENT_NAME')=='push'
- event=json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'));assert any(marker in event['head_commit']['message'] for marker in (MARKER,'[unsigned-trial-191]'))
+ event=json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'));assert any(marker in event['head_commit']['message'] for marker in (MARKER,'[unsigned-trial-191]','[lock-diagnostic-191]'))
  root=pathlib.Path(__file__).resolve().parents[1];temp=pathlib.Path(os.environ['RUNNER_TEMP'])
  assert shutil.disk_usage(root).free>=MIN_FREE+MAX_OUTPUT and shutil.disk_usage(temp).free>=MIN_FREE+MAX_OUTPUT
  rustup=shutil.which('rustup');assert rustup,'Existing official runner rustup required'
