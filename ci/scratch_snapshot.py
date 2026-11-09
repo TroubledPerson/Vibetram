@@ -87,11 +87,10 @@ class ScratchTracker:
  def verify_parents(self):
   for _,(h,before) in self.parents.items():
    after=self.api.info(h);regular(after,before['identity'][0]);assert identity(after)==identity(before),'SCRATCH_PARENT_IDENTITY_RACE'
- def observe(self,path):
-  path=pathlib.Path(path);assert eligible(self.work,path),'UNQUALIFIED_SCRATCH_SCOPE';assert len(path.parts)<=32
-  key=str(path);assert len(self.baselines)<MAX_TRACKED or key in self.baselines,'SCRATCH_IDENTITY_BUDGET'
-  current=pathlib.Path(path.anchor);volume=None
-  for i,part in enumerate(path.parent.parts):
+ def lease_parent(self,parent_path):
+  parent_path=pathlib.Path(parent_path);assert len(parent_path.parts)<=32
+  current=pathlib.Path(parent_path.anchor);volume=None
+  for i,part in enumerate(parent_path.parts):
    if i:current=current/part
    parent=str(current)
    if parent not in self.parents:
@@ -99,6 +98,11 @@ class ScratchTracker:
    ph,meta=self.parents[parent];fresh=self.api.info(ph);regular(fresh,volume);assert identity(fresh)==identity(meta),'SCRATCH_PARENT_IDENTITY_RACE'
    old=self.parent_baselines.get(parent);assert old is None or old==identity(fresh),'SCRATCH_PARENT_REPLACED';self.parent_baselines[parent]=identity(fresh)
    if volume is None:volume=fresh['identity'][0]
+  return volume
+ def observe(self,path):
+  path=pathlib.Path(path);assert eligible(self.work,path),'UNQUALIFIED_SCRATCH_SCOPE';assert len(path.parts)<=32
+  key=str(path);assert len(self.baselines)<MAX_TRACKED or key in self.baselines,'SCRATCH_IDENTITY_BUDGET'
+  volume=self.lease_parent(path.parent)
   h=self._open(path,7,True);meta=self.api.info(h);regular(meta,volume)
   old=self.baselines.get(key);assert old is None or old==identity(meta),'SCRATCH_ENTRY_REPLACED'
   self.baselines[key]=identity(meta);self.entries[key]=(h,meta);return h,meta

@@ -76,6 +76,9 @@
         },
         {
           "run": "python -B ci/test_scan_efficiency.py"
+        },
+        {
+          "run": "python -B ci/test_ordinary_churn.py"
         }
       ]
     },

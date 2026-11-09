@@ -64,12 +64,24 @@ def fresh_entry(path):
  assert type(meta.st_size) is int and meta.st_size>=0,'INVALID_ENTRY_SIZE'
  return meta
 
+class OrdinaryScratchChurn(RuntimeError):
+ def __init__(self,relative,partial):
+  assert type(partial) is int and partial>=0
+  self.relative=relative;self.partial=partial
+  super().__init__('ORDINARY_COMPILER_SNAPSHOT_INVALIDATED')
+def compiler_scratch_root(work,path):
+ try:r=pathlib.PureWindowsPath(path).relative_to(pathlib.PureWindowsPath(work)).parts
+ except ValueError:return False
+ return r in (('target','ci-test','deps'),('target','aarch64-linux-android','ci-test','deps'))
+def qualified_ordinary_churn(work,path,error):
+ return type(getattr(error,'winerror',None)) is int and error.winerror==2 and isinstance(error,FileNotFoundError) and compiler_scratch_root(work,path.parent) and re.fullmatch(r'[A-Za-z0-9_.-]{1,240}\.rcgu\.o',path.name) is not None
+
 class Guard:
  def __init__(self,root,work,out,env):
   self.root=root;self.work=work;self.out=out;self.env=env;self.start=time.monotonic();self.count=0;self.peak=0;self.races=0
   self.roots=[work,out,pathlib.Path(env['CARGO_HOME']),pathlib.Path(env['RUSTUP_HOME'])]
   assert shutil.disk_usage(root).free>=MIN_FREE+MAX_OUTPUT,'INSUFFICIENT_INITIAL_TRIAL_RESERVATION'
-  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.scratch_baselines={};self.scratch_parent_baselines={};self.root_scans=[];self.enumeration_resource_checks=0;self.active_log_bytes=0;self.snapshot_incomplete=0;self.last_completed_bytes=None;self.last_snapshot_complete=False;self.check()
+  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.scratch_baselines={};self.scratch_parent_baselines={};self.last_completed_root_scans=[];self.accepted_snapshot_peak=0;self.ordinary_churn_count=0;self.recent_churn=[];self.snapshot_deadline=None;self.root_scans=[];self.enumeration_resource_checks=0;self.active_log_bytes=0;self.snapshot_incomplete=0;self.last_completed_bytes=None;self.last_snapshot_complete=False;self.check()
  def _leased_pass(self):
   holder={}
   def scan(report):
@@ -87,6 +99,28 @@ class Guard:
   raise AssertionError('ALIAS_METADATA_ACCOUNTING_STOP:'+result.get('state','UNKNOWN')+':'+str(result.get('osError',result.get('reason','UNQUALIFIED'))))
  def size(self):
   if self.alias_failure is not None:raise AssertionError(self.alias_failure)
+  self.snapshot_deadline=time.monotonic()+5
+  try:
+   for attempt in range(3):
+    self._enumeration_resources(0)
+    try:
+     total=self._size_once();self._enumeration_resources(total);return total
+    except OrdinaryScratchChurn as error:
+     self.last_snapshot_complete=False
+     self.peak=max(self.peak,error.partial)
+     self.ordinary_churn_count=getattr(self,'ordinary_churn_count',0)+1
+     assert self.ordinary_churn_count<=256,'ORDINARY_CHURN_GLOBAL_BOUND'
+     event={'attempt':attempt+1,'relative':error.relative,'confirmedPartialBytes':error.partial,'unmeasuredResidualBytes':None,'completedTotalReported':False,'discardedRootScans':getattr(self,'root_scans',[])}
+     self.recent_churn=(getattr(self,'recent_churn',[])+[event])[-3:]
+     self._enumeration_resources(error.partial)
+     print('INVALIDATED_ORDINARY_SNAPSHOT '+json.dumps(event),flush=True)
+   raise AssertionError('ORDINARY_CHURN_RESCAN_BOUND')
+  except (IncompleteScratchSnapshot,OrdinaryScratchChurn):raise
+  except (AssertionError,OSError,RuntimeError) as error:
+   self.alias_failure=str(error)[:300];raise
+  finally:self.snapshot_deadline=None
+ def _size_once(self):
+  if self.alias_failure is not None:raise AssertionError(self.alias_failure)
   try:
    disjoint_roots(self.roots)
    for attempt in range(2):
@@ -98,7 +132,7 @@ class Guard:
     after=self._leased_pass()
     return after if after is not None else total
    raise AssertionError('ALIAS_APPEARANCE_OR_IDENTITY_RACE')
-  except IncompleteScratchSnapshot:raise
+  except (IncompleteScratchSnapshot,OrdinaryScratchChurn):raise
   except (AssertionError,OSError,RuntimeError) as error:
    self.alias_failure=str(error)[:300];raise
  def _enumeration_resources(self,partial):
@@ -106,6 +140,8 @@ class Guard:
   self.peak=max(self.peak,partial)
   reason=limits(shutil.disk_usage(self.root).free,self.peak,time.monotonic()-self.start,getattr(self,'active_log_bytes',0))
   assert not reason,reason
+  deadline=getattr(self,'snapshot_deadline',None)
+  assert deadline is None or time.monotonic()<deadline,'SNAPSHOT_VALIDATION_DEADLINE'
  def _walk(self,lease):
   self.root_scans=[]
   with ScratchTracker(self.work,self.scratch_baselines,self.scratch_parent_baselines) as scratch:return self._walk_tracked(lease,scratch)
@@ -126,6 +162,7 @@ class Guard:
     assert not root.is_symlink() and not root.is_junction(),'UNQUALIFIED_ACCOUNTING_ROOT_LINK'
     assert root.exists(),'ACCOUNTING_ROOT_MISSING'
     for folder,dirs,files in os.walk(root,followlinks=False,onerror=walk_error):
+     if root==self.work and compiler_scratch_root(self.work,pathlib.Path(folder)):scratch.lease_parent(pathlib.Path(folder));scratch.verify_parents()
      if root==self.work and pathlib.Path(folder)==self.work/EXPECTED_TARGET:target_visits+=1
      for name in list(dirs):
       d=pathlib.Path(folder)/name;meta=fresh_entry(d);row['directoryEntries']+=1;since+=1
@@ -136,13 +173,15 @@ class Guard:
        self.pending_reparse=(root,d.relative_to(root))
        raise AssertionError('UNQUALIFIED_OUTPUT_DIRECTORY_LINK:'+str(d.relative_to(root)))
       assert stat.S_ISDIR(meta.st_mode) and meta.st_reparse_tag==0,'DIRECTORY_ENTRY_TYPE_OR_TAG_CHANGED'
+      if root==self.work and compiler_scratch_root(self.work,d):scratch.lease_parent(d);scratch.verify_parents()
       if root==self.work and eligible_scratch(self.work,d):
        total+=scratch.scan(d,total);dirs.remove(name);row['scratchLeaves']+=1
       tick()
      for name in files:
       p=pathlib.Path(folder)/name
+      reading_entry=True
       try:
-       meta=fresh_entry(p);row['ordinaryFileEntries']+=1;since+=1
+       meta=fresh_entry(p);reading_entry=False;row['ordinaryFileEntries']+=1;since+=1
        if meta.st_file_attributes&0x400:
         assert stat.S_ISLNK(meta.st_mode) and meta.st_reparse_tag==0xa000000c,'UNQUALIFIED_OUTPUT_FILE_JUNCTION'
         cargo=pathlib.Path(self.env['CARGO_HOME']);assert p.is_relative_to(cargo),'OUTPUT_LINK_OUTSIDE_PINNED_CACHE';relative=p.relative_to(cargo).as_posix();target=os.readlink(p)
@@ -159,9 +198,12 @@ class Guard:
        else:
         assert stat.S_ISREG(meta.st_mode) and meta.st_reparse_tag==0,'FILE_ENTRY_TYPE_OR_TAG_CHANGED'
         total+=meta.st_size
-      except FileNotFoundError:
+      except FileNotFoundError as error:
        if lease is not None and root==self.work and p.is_relative_to(self.work/EXPECTED_TARGET):raise AssertionError('IE_TARGET_FILE_SNAPSHOT_RACE')
-       self.races+=1;raise AssertionError('UNVERIFIED_FILE_DISAPPEARANCE')
+       self.races+=1
+       if reading_entry and root==self.work and qualified_ordinary_churn(self.work,p,error):
+        scratch.verify_parents();raise OrdinaryScratchChurn(p.relative_to(self.work).as_posix(),total)
+       raise AssertionError('UNVERIFIED_FILE_DISAPPEARANCE')
       tick()
     tick(True);row['complete']=True;row['completedRootBytes']=total-before
    finally:
@@ -184,11 +226,11 @@ class Guard:
     continue
    self.peak=max(self.peak,used);elapsed=time.monotonic()-self.start
    reason=limits(shutil.disk_usage(self.root).free,used,elapsed,log);assert not reason,reason
-   self.last_completed_bytes=used;self.last_snapshot_complete=True
+   self.last_completed_bytes=used;self.last_snapshot_complete=True;self.last_completed_root_scans=json.loads(json.dumps(getattr(self,'root_scans',[])));self.accepted_snapshot_peak=max(getattr(self,'accepted_snapshot_peak',0),used)
    return elapsed,used
   self.alias_failure='INCOMPLETE_SNAPSHOT_RETRY_BOUND';raise AssertionError(self.alias_failure)
  def report(self):
-  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'rootScans':self.root_scans,'enumerationResourceChecks':self.enumeration_resource_checks,'enumerationCheckMaxEntries':256,'enumerationCheckIntervalSeconds':0.25,'snapshotDisappearanceRaces':self.races,'verifiedIncompleteSnapshots':self.snapshot_incomplete,'lastSnapshotComplete':self.last_snapshot_complete,'lastCompletedSnapshotBytes':self.last_completed_bytes,'unmeasuredIncompleteResidualBytes':None,'peakIsExactHistoricalMaximum':False,'snapshotAttemptBound':MAX_ATTEMPTS,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
+  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'lastCompletedRootScans':self.last_completed_root_scans,'acceptedSnapshotPeakBytes':self.accepted_snapshot_peak,'ordinaryChurnInvalidations':self.ordinary_churn_count,'recentDiscardedSnapshots':self.recent_churn,'rootScans':self.root_scans,'enumerationResourceChecks':self.enumeration_resource_checks,'enumerationCheckMaxEntries':256,'enumerationCheckIntervalSeconds':0.25,'snapshotDisappearanceRaces':self.races,'verifiedIncompleteSnapshots':self.snapshot_incomplete,'lastSnapshotComplete':self.last_snapshot_complete,'lastCompletedSnapshotBytes':self.last_completed_bytes,'unmeasuredIncompleteResidualBytes':None,'peakIsExactHistoricalMaximum':False,'snapshotAttemptBound':MAX_ATTEMPTS,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
  def run(self,args,cwd=None,env=None,capture=False,timeout=None):
   self.check();self.count+=1;index=self.count;label=pathlib.Path(str(args[0])).name
   stdout=self.work/f'command-{index:02d}.stdout.log';stderr=self.work/f'command-{index:02d}.stderr.log'
