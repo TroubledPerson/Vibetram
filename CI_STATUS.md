@@ -121,3 +121,13 @@ Only a verified regular handle with Windows DeletePending confirmation may inter
 This remains monitored, non-atomic retained-space accounting, not an exact historical maximum or hard cumulative-write quota. Incomplete residual sizes are reported unknown, never zero; a rescan does not reconstruct bytes created/deleted between observations. The original full64GiB reservation and40GiB physical free-space floor remain held independently; no allowance is released because data disappeared.
 
 Official metadata contracts: https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_standard_info and https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_both_dir_info . One bounded unsigned retry is authorized after synthetic policy/privacy review. Signing/Release and pending-alert inspection remain excluded.
+
+## Fresh ordinary-entry metadata and bounded enumeration telemetry
+
+Run42661462853 stopped after33 qualified alias passes on ALIAS_VALIDATED_SCAN_DEADLINE while Cargo compilation was active. Its last completed sampled retained total was2172553126bytes. There were no confirmed scratch-disappearance rescans. It did not produce an Android APK or native test result.
+
+The monitor now uses one fresh os.lstat metadata record for each ordinary directory/file entry, checks type and Windows reparse attributes/tag, and counts regular sizes from that fresh record. It does not use cached DirEntry sizes. Existing exact alias leases, held-handle scratch enumeration, pinned licence bytes and fatal missing/access/unknown-type rules remain active. The five-second alias-validation-plus-scan deadline is unchanged.
+
+Enumeration checks physical free space, retained partial/previous peak and the global trial time/log budget at every root boundary and at most256 entries or0.25seconds between metadata operations. This cannot interrupt a blocking filesystem operation or guarantee a hard write cap. Root-index telemetry reports duration, ordinary file entries, directory entries, scratch leaves and confirmed partial bytes; a failed root has no completed total. These measurements exclude scratch child-entry counts enumerated inside the specialised handle policy. Full trees are still rescanned; sustainability at clean-build scale remains unverified.
+
+Local synthetic equivalence/failure tests and a bounded regular-tree benchmark precede one unsigned hosted trial. No security alert inspection, signing, Release, permission or tool-pin changes are included.

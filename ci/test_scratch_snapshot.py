@@ -122,11 +122,11 @@ class SnapshotRetry(unittest.TestCase):
    self.assertEqual(size.call_count,1)
 class ProductionWalker(unittest.TestCase):
  def test_scratch_counted_via_handle_and_pruned_from_walk(self):
-  from test_alias_accounting import guard
+  from test_alias_accounting import guard,fake_metadata
   g=guard();api=FakeAPI()
   def walk(root,followlinks,onerror):
    dirs=[P.name];yield str(P.parent),dirs,[];self.assertNotIn(P.name,dirs,'SCRATCH_PATH_WAS_TRAVERSED')
-  with patch('scratch_snapshot.MetadataAPI',return_value=api),patch('build_guard.os.walk',walk),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',lambda p:False):
+  with patch('scratch_snapshot.MetadataAPI',return_value=api),patch('build_guard.os.lstat',fake_metadata),patch('build_guard.os.walk',walk),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',lambda p:False):
    self.assertEqual(g._walk(None),4196)
   self.assertEqual(len(api.closed),len(api.opened))
 if __name__=='__main__':unittest.main()

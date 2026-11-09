@@ -1,5 +1,5 @@
 """Synthetic production-walker tests; no real links, files or target traversal."""
-import unittest,pathlib,copy,types
+import unittest,pathlib,copy,types,stat,time
 from unittest.mock import patch
 from build_guard import Guard
 from alias_accounting import ALIAS_METADATA_BYTES,AliasAppeared,lease_key,compare_baseline,safe_absence,disjoint_roots
@@ -7,8 +7,12 @@ from reparse_metadata import EXPECTED_ALIAS,EXPECTED_TARGET
 ROOT=pathlib.Path('D:/job/work');CACHE=ROOT/'profile/AppData/Local/Microsoft/Windows/INetCache';ALIAS=CACHE/'Content.IE5';TARGET=CACHE/'IE'
 def report():
  return {'state':'CAPTURED_ALIAS_AND_REGULAR_TARGET_METADATA_STOP','relativePath':EXPECTED_ALIAS,'reparseTagHex':'0xa0000003','targetClass':'INTERNAL_LEXICAL_ONLY_NOT_QUALIFIED','physicalTargetMetadataQualified':True,'targetMetadataOpenedIndependently':True,'linkTraversed':False,'physicalTargetRelative':EXPECTED_TARGET,'targetJobRelative':EXPECTED_TARGET,'physicalTargetTagHex':'0x0','fileIdentity':[1,0,4],'physicalTargetIdentity':[1,0,3],'physicalAncestorCount':3,'physicalAncestors':[{'depth':i,'identity':[1,0,i+1],'tagHex':'0x0','attributes':'0x10'} for i in range(3)],'rawRecordSHA256':'a'*64,'rawRecordBytes':392}
+def fake_metadata(p,reparse=False):
+ directory=p.name not in ('one.bin','two.bin','gone')
+ return types.SimpleNamespace(st_size=11 if p.name=='one.bin' else 17,st_mode=stat.S_IFDIR if directory else stat.S_IFREG,st_file_attributes=0x400 if reparse else (16 if directory else 0),st_reparse_tag=0xa0000003 if reparse else 0)
+
 def guard():
- g=object.__new__(Guard);g.root=ROOT;g.work=ROOT;g.roots=[ROOT];g.env={};g.races=0;g.pending_reparse=None;g.alias_baseline=None;g.alias_last_result=None;g.alias_failure=None;g.alias_passes=0;g.alias_charged_bytes=0;g.qualified_links=set();g.scratch_baselines={};g.scratch_parent_baselines={};return g
+ g=object.__new__(Guard);g.root=ROOT;g.work=ROOT;g.roots=[ROOT];g.env={};g.races=0;g.pending_reparse=None;g.alias_baseline=None;g.alias_last_result=None;g.alias_failure=None;g.alias_passes=0;g.alias_charged_bytes=0;g.start=time.monotonic();g.peak=0;g._enumeration_resources=lambda partial:None;g.qualified_links=set();g.scratch_baselines={};g.scratch_parent_baselines={};return g
 class AliasPolicy(unittest.TestCase):
  def test_valid_lease(self):self.assertIsNotNone(lease_key(report()))
  def test_external_class_fatal(self):
@@ -51,7 +55,7 @@ class ActualWalker(unittest.TestCase):
    if not omit_target:
     yield str(TARGET),['unknown'] if unknown else [],['one.bin','two.bin']
   def junction(p):return p==ALIAS or unknown and p==TARGET/'unknown'
-  with patch('build_guard.os.walk',mocked_walk),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',junction),patch.object(pathlib.Path,'stat',lambda p:types.SimpleNamespace(st_size=11 if p.name=='one.bin' else 17)):
+  with patch('build_guard.os.walk',mocked_walk),patch('build_guard.os.lstat',lambda p:fake_metadata(p,junction(p))),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',junction),patch.object(pathlib.Path,'stat',lambda p:types.SimpleNamespace(st_size=11 if p.name=='one.bin' else 17)):
    return Guard._walk(g,metadata)
  def test_counts_alias_and_target_once(self):self.assertEqual(self.walk(guard(),report()),ALIAS_METADATA_BYTES+28)
  def test_enumeration_order_does_not_duplicate_count(self):self.assertEqual(self.walk(guard(),report(),reverse=True),ALIAS_METADATA_BYTES+28)
@@ -92,17 +96,19 @@ class ActualWalker(unittest.TestCase):
  def test_inaccessible_walk_fatal(self):
   def walk(root,followlinks,onerror):
    onerror(PermissionError(5,'synthetic denied'));yield '',[],[]
-  with patch('build_guard.os.walk',walk),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',lambda p:False):
+  with patch('build_guard.os.walk',walk),patch('build_guard.os.lstat',lambda p:fake_metadata(p,p in (ALIAS,CACHE/'unknown'))),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',lambda p:False):
    with self.assertRaises(PermissionError):Guard._walk(guard(),report())
  def test_target_file_disappearance_fatal(self):
   def walk(root,followlinks,onerror):
    dirs=['Content.IE5','IE'];yield str(CACHE),dirs,[];self.assertNotIn('Content.IE5',dirs);yield str(TARGET),[],['gone']
-  def stat(p):raise FileNotFoundError('synthetic race')
-  with patch('build_guard.os.walk',walk),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',lambda p:p==ALIAS),patch.object(pathlib.Path,'stat',stat):
+  def stat(p):
+   if p.name=='gone':raise FileNotFoundError('synthetic race')
+   return fake_metadata(p,p==ALIAS)
+  with patch('build_guard.os.walk',walk),patch('build_guard.os.lstat',lambda p:fake_metadata(p,p in (ALIAS,CACHE/'unknown'))),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',lambda p:p==ALIAS),patch('build_guard.os.lstat',stat):
    with self.assertRaisesRegex(AssertionError,'IE_TARGET_FILE_SNAPSHOT_RACE'):Guard._walk(guard(),report())
  def test_unknown_sibling_after_pruned_alias_fatal(self):
   def walk(root,followlinks,onerror):
    dirs=['Content.IE5','unknown','IE'];yield str(CACHE),dirs,[]
-  with patch('build_guard.os.walk',walk),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',lambda p:p in (ALIAS,CACHE/'unknown')):
+  with patch('build_guard.os.walk',walk),patch('build_guard.os.lstat',lambda p:fake_metadata(p,p in (ALIAS,CACHE/'unknown'))),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',lambda p:p in (ALIAS,CACHE/'unknown')):
    with self.assertRaisesRegex(AssertionError,'UNQUALIFIED_OUTPUT_DIRECTORY_LINK'):Guard._walk(guard(),report())
 if __name__=='__main__':unittest.main()

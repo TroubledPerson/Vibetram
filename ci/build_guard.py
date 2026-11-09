@@ -1,5 +1,5 @@
 """Monitored hosted unsigned-trial helpers; no signing or credential access."""
-import pathlib,os,subprocess,time,shutil,json,re,hashlib
+import pathlib,os,subprocess,time,shutil,json,re,hashlib,stat
 from reparse_metadata import capture as capture_reparse_metadata,EXPECTED_ALIAS,EXPECTED_TARGET
 from scratch_snapshot import ScratchTracker,IncompleteScratchSnapshot,eligible as eligible_scratch,MAX_ATTEMPTS,MAX_INTERRUPTS
 from alias_accounting import ALIAS_METADATA_BYTES,AliasAppeared,exact_alias,safe_absence,disjoint_roots,lease_key,compare_baseline
@@ -58,12 +58,18 @@ def redact(text):
  text=re.sub(r'(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})','<redacted-token-shape>',text)
  text=re.sub(r'(?i)C:\\Users\\[^\\\r\n]+',r'<runner-profile>',text)
  return text
+def fresh_entry(path):
+ meta=os.lstat(path)
+ assert type(meta.st_file_attributes) is int and type(meta.st_reparse_tag) is int,'UNQUALIFIED_ENTRY_METADATA'
+ assert type(meta.st_size) is int and meta.st_size>=0,'INVALID_ENTRY_SIZE'
+ return meta
+
 class Guard:
  def __init__(self,root,work,out,env):
   self.root=root;self.work=work;self.out=out;self.env=env;self.start=time.monotonic();self.count=0;self.peak=0;self.races=0
   self.roots=[work,out,pathlib.Path(env['CARGO_HOME']),pathlib.Path(env['RUSTUP_HOME'])]
   assert shutil.disk_usage(root).free>=MIN_FREE+MAX_OUTPUT,'INSUFFICIENT_INITIAL_TRIAL_RESERVATION'
-  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.scratch_baselines={};self.scratch_parent_baselines={};self.snapshot_incomplete=0;self.last_completed_bytes=None;self.last_snapshot_complete=False;self.check()
+  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.scratch_baselines={};self.scratch_parent_baselines={};self.root_scans=[];self.enumeration_resource_checks=0;self.active_log_bytes=0;self.snapshot_incomplete=0;self.last_completed_bytes=None;self.last_snapshot_complete=False;self.check()
  def _leased_pass(self):
   holder={}
   def scan(report):
@@ -95,49 +101,75 @@ class Guard:
   except IncompleteScratchSnapshot:raise
   except (AssertionError,OSError,RuntimeError) as error:
    self.alias_failure=str(error)[:300];raise
+ def _enumeration_resources(self,partial):
+  self.enumeration_resource_checks=getattr(self,'enumeration_resource_checks',0)+1
+  self.peak=max(self.peak,partial)
+  reason=limits(shutil.disk_usage(self.root).free,self.peak,time.monotonic()-self.start,getattr(self,'active_log_bytes',0))
+  assert not reason,reason
  def _walk(self,lease):
+  self.root_scans=[]
   with ScratchTracker(self.work,self.scratch_baselines,self.scratch_parent_baselines) as scratch:return self._walk_tracked(lease,scratch)
  def _walk_tracked(self,lease,scratch):
   total=0;alias_visits=0;target_visits=0
   def walk_error(error):raise error
-  for root in self.roots:
-   assert not root.is_symlink() and not root.is_junction(),'UNQUALIFIED_ACCOUNTING_ROOT_LINK'
-   assert root.exists(),'ACCOUNTING_ROOT_MISSING'
-   for folder,dirs,files in os.walk(root,followlinks=False,onerror=walk_error):
-    if root==self.work and pathlib.Path(folder)==self.work/EXPECTED_TARGET:target_visits+=1
-    for name in list(dirs):
-     d=pathlib.Path(folder)/name
-     if d.is_symlink() or d.is_junction():
-      if root==self.work and exact_alias(d.relative_to(root)):
-       if lease is None:raise AliasAppeared('EXACT_ALIAS_APPEARED_DURING_UNLEASED_SNAPSHOT')
-       alias_visits+=1;assert alias_visits==1,'DUPLICATE_ALIAS_ENUMERATION';dirs.remove(name);total+=ALIAS_METADATA_BYTES;continue
-      self.pending_reparse=(root,d.relative_to(root))
-      raise AssertionError('UNQUALIFIED_OUTPUT_DIRECTORY_LINK:'+str(d.relative_to(root)))
-     if root==self.work and eligible_scratch(self.work,d):
-      total+=scratch.scan(d,total);dirs.remove(name)
-    for name in files:
-     p=pathlib.Path(folder)/name
-     try:
-      assert not p.is_junction(),'UNQUALIFIED_OUTPUT_FILE_JUNCTION'
-      if p.is_symlink():
-       cargo=pathlib.Path(self.env['CARGO_HOME']);relative=p.relative_to(cargo).as_posix();target=os.readlink(p)
-       rule=license_rule(relative,target);assert rule is not None,'UNQUALIFIED_OUTPUT_FILE_LINK:'+relative
-       sibling=p.parent.parent/'LICENSE';assert sibling.is_file() and not sibling.is_symlink(),'PINNED_LICENSE_TARGET_NOT_REGULAR'
-       for ancestor in sibling.parents:
-        assert not ancestor.is_symlink() and not ancestor.is_junction(),'PINNED_LICENSE_ANCESTOR_LINK'
-        if ancestor==cargo:break
-       assert sibling.stat().st_size<=32768,'PINNED_LICENSE_SIZE_LIMIT'
-       data=sibling.read_bytes();assert len(data.replace(bytes([13,10]),bytes([10])))==rule[4],'PINNED_LICENSE_SIZE_CHANGED';blob=normalized_license_blob(data)
-       assert qualified_license_link(relative,target,blob),'PINNED_LICENSE_IDENTITY_CHANGED'
-       total+=max(4096,p.lstat().st_size)
-       self.qualified_links.add(relative)
-      else:total+=p.stat().st_size
-     except FileNotFoundError:
-      if lease is not None and root==self.work and p.is_relative_to(self.work/EXPECTED_TARGET):raise AssertionError('IE_TARGET_FILE_SNAPSHOT_RACE')
-      self.races+=1;raise AssertionError('UNVERIFIED_FILE_DISAPPEARANCE')
+  for index,root in enumerate(self.roots):
+   begin=time.monotonic();last=begin;since=0;before=total
+   row={'rootIndex':index,'ordinaryFileEntries':0,'directoryEntries':0,'scratchLeaves':0,'complete':False,'completedRootBytes':None}
+   self.root_scans.append(row)
+   def tick(force=False):
+    nonlocal last,since
+    now=time.monotonic()
+    if force or since>=256 or now-last>=0.25:
+     self._enumeration_resources(total);last=now;since=0
+   try:
+    tick(True)
+    assert not root.is_symlink() and not root.is_junction(),'UNQUALIFIED_ACCOUNTING_ROOT_LINK'
+    assert root.exists(),'ACCOUNTING_ROOT_MISSING'
+    for folder,dirs,files in os.walk(root,followlinks=False,onerror=walk_error):
+     if root==self.work and pathlib.Path(folder)==self.work/EXPECTED_TARGET:target_visits+=1
+     for name in list(dirs):
+      d=pathlib.Path(folder)/name;meta=fresh_entry(d);row['directoryEntries']+=1;since+=1
+      if meta.st_file_attributes&0x400:
+       if root==self.work and exact_alias(d.relative_to(root)):
+        if lease is None:raise AliasAppeared('EXACT_ALIAS_APPEARED_DURING_UNLEASED_SNAPSHOT')
+        alias_visits+=1;assert alias_visits==1,'DUPLICATE_ALIAS_ENUMERATION';dirs.remove(name);total+=ALIAS_METADATA_BYTES;tick();continue
+       self.pending_reparse=(root,d.relative_to(root))
+       raise AssertionError('UNQUALIFIED_OUTPUT_DIRECTORY_LINK:'+str(d.relative_to(root)))
+      assert stat.S_ISDIR(meta.st_mode) and meta.st_reparse_tag==0,'DIRECTORY_ENTRY_TYPE_OR_TAG_CHANGED'
+      if root==self.work and eligible_scratch(self.work,d):
+       total+=scratch.scan(d,total);dirs.remove(name);row['scratchLeaves']+=1
+      tick()
+     for name in files:
+      p=pathlib.Path(folder)/name
+      try:
+       meta=fresh_entry(p);row['ordinaryFileEntries']+=1;since+=1
+       if meta.st_file_attributes&0x400:
+        assert stat.S_ISLNK(meta.st_mode) and meta.st_reparse_tag==0xa000000c,'UNQUALIFIED_OUTPUT_FILE_JUNCTION'
+        cargo=pathlib.Path(self.env['CARGO_HOME']);assert p.is_relative_to(cargo),'OUTPUT_LINK_OUTSIDE_PINNED_CACHE';relative=p.relative_to(cargo).as_posix();target=os.readlink(p)
+        rule=license_rule(relative,target);assert rule is not None,'UNQUALIFIED_OUTPUT_FILE_LINK:'+relative
+        sibling=p.parent.parent/'LICENSE';assert sibling.is_file() and not sibling.is_symlink(),'PINNED_LICENSE_TARGET_NOT_REGULAR'
+        for ancestor in sibling.parents:
+         assert not ancestor.is_symlink() and not ancestor.is_junction(),'PINNED_LICENSE_ANCESTOR_LINK'
+         if ancestor==cargo:break
+        assert sibling.stat().st_size<=32768,'PINNED_LICENSE_SIZE_LIMIT'
+        data=sibling.read_bytes();assert len(data.replace(bytes([13,10]),bytes([10])))==rule[4],'PINNED_LICENSE_SIZE_CHANGED';blob=normalized_license_blob(data)
+        assert qualified_license_link(relative,target,blob),'PINNED_LICENSE_IDENTITY_CHANGED'
+        total+=max(4096,meta.st_size)
+        self.qualified_links.add(relative)
+       else:
+        assert stat.S_ISREG(meta.st_mode) and meta.st_reparse_tag==0,'FILE_ENTRY_TYPE_OR_TAG_CHANGED'
+        total+=meta.st_size
+      except FileNotFoundError:
+       if lease is not None and root==self.work and p.is_relative_to(self.work/EXPECTED_TARGET):raise AssertionError('IE_TARGET_FILE_SNAPSHOT_RACE')
+       self.races+=1;raise AssertionError('UNVERIFIED_FILE_DISAPPEARANCE')
+      tick()
+    tick(True);row['complete']=True;row['completedRootBytes']=total-before
+   finally:
+    row['seconds']=round(time.monotonic()-begin,6);row['confirmedPartialRootBytes']=total-before
   if lease is not None:assert alias_visits==1 and target_visits==1,'ALIAS_OR_INDEPENDENT_TARGET_ENUMERATION_COUNT'
   return total
  def check(self,log=0):
+  self.active_log_bytes=log
   for attempt in range(MAX_ATTEMPTS):
    elapsed=time.monotonic()-self.start
    reason=limits(shutil.disk_usage(self.root).free,self.peak,elapsed,log);assert not reason,reason
@@ -156,7 +188,7 @@ class Guard:
    return elapsed,used
   self.alias_failure='INCOMPLETE_SNAPSHOT_RETRY_BOUND';raise AssertionError(self.alias_failure)
  def report(self):
-  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'snapshotDisappearanceRaces':self.races,'verifiedIncompleteSnapshots':self.snapshot_incomplete,'lastSnapshotComplete':self.last_snapshot_complete,'lastCompletedSnapshotBytes':self.last_completed_bytes,'unmeasuredIncompleteResidualBytes':None,'peakIsExactHistoricalMaximum':False,'snapshotAttemptBound':MAX_ATTEMPTS,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
+  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'rootScans':self.root_scans,'enumerationResourceChecks':self.enumeration_resource_checks,'enumerationCheckMaxEntries':256,'enumerationCheckIntervalSeconds':0.25,'snapshotDisappearanceRaces':self.races,'verifiedIncompleteSnapshots':self.snapshot_incomplete,'lastSnapshotComplete':self.last_snapshot_complete,'lastCompletedSnapshotBytes':self.last_completed_bytes,'unmeasuredIncompleteResidualBytes':None,'peakIsExactHistoricalMaximum':False,'snapshotAttemptBound':MAX_ATTEMPTS,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
  def run(self,args,cwd=None,env=None,capture=False,timeout=None):
   self.check();self.count+=1;index=self.count;label=pathlib.Path(str(args[0])).name
   stdout=self.work/f'command-{index:02d}.stdout.log';stderr=self.work/f'command-{index:02d}.stderr.log'
