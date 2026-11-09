@@ -261,5 +261,12 @@
     }
   ],
   "upstreamFilesContentMatchingAfterLineEndingNormalization": 7802,
-  "notes": "Only copied candidate files receive notice comments. Original validated 1.91 engineering sources and APK remain untouched."
+  "notes": "Only copied candidate files receive notice comments. Original validated 1.91 engineering sources and APK remain untouched.",
+  "credentialFixtureRemediation": {
+    "path": "codex-rs/cli/src/doctor/output.rs",
+    "upstreamCommit": "fe74a774532af67b5a4a3dec03ce9469e17f89af",
+    "upstreamGitBlobSHA1": "bef6dc7772efff81f2c6462b6991421d25ee9a80",
+    "modifiedSHA256": "6a9e4c7dea1da51aa92b0ed542c4a15ec1dc855cdb6d46b5f37ee468f8697211",
+    "scope": "Only test fixture construction and a modification notice; production redaction logic unchanged. Historical literals are not reconstructed. No credential validity claim; GitHub alert remains open."
+  }
 }

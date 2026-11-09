@@ -1,3 +1,4 @@
+// Vibetram modification: construct synthetic redaction fixtures; upstream notices retained.
 //! Renders doctor reports for terminal users.
 //!
 //! The renderer is intentionally separate from check construction so the JSON
@@ -1810,6 +1811,10 @@ Run codex doctor without --summary for detailed diagnostics.
 
     #[test]
     fn redact_detail_preserves_missing_env_diagnostics() {
+        // Construct new test-only values; never embed the historical credential-shaped literals.
+        let synthetic_access_key_id = format!("{}{}", "AKIA", "TEST".repeat(4));
+        let synthetic_temporary_access_key_id = format!("{}{}", "ASIA", "TEST".repeat(4));
+
         for prefix in ["env var", "bearer token env var", "header env var"] {
             for (variable, expected) in [
                 ("DOCS_TOKEN", "DOCS_TOKEN"),
@@ -1819,8 +1824,8 @@ Run codex doctor without --summary for detailed diagnostics.
                 ("sk-proj-SYNTHETIC_CREDENTIAL", "<redacted>"),
                 ("ghp_SYNTHETIC_CREDENTIAL", "<redacted>"),
                 ("github_pat_SYNTHETIC_CREDENTIAL", "<redacted>"),
-                ("AKIAABCDEFGHIJKLMNOP", "<redacted>"),
-                ("ASIAABCDEFGHIJKLMNOP", "<redacted>"),
+                (synthetic_access_key_id.as_str(), "<redacted>"),
+                (synthetic_temporary_access_key_id.as_str(), "<redacted>"),
                 ("eyJhbGciOiJIUzI1NiJ9.synthetic.signature", "<redacted>"),
             ] {
                 assert_eq!(

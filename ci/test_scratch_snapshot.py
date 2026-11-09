@@ -100,25 +100,25 @@ class BinaryMetadata(unittest.TestCase):
   with self.assertRaises(AssertionError):directory_records(b)
 class SnapshotRetry(unittest.TestCase):
  def guard(self):
-  g=object.__new__(Guard);g.root=ROOT;g.start=0;g.peak=100;g.snapshot_incomplete=0;g.last_completed_bytes=None;g.last_snapshot_complete=False;g.alias_failure=None;return g
+  g=object.__new__(Guard);g.root=ROOT;g.start=0;g.peak=100;g.snapshot_incomplete=0;g.last_completed_bytes=None;g.last_snapshot_complete=False;g.alias_failure=None;g.recent_churn=[];return g
  def test_incomplete_then_complete_preserves_peak(self):
   g=self.guard()
-  with patch.object(g,'size',side_effect=[IncompleteScratchSnapshot('target/ci-test/deps/rmetaABC123',[1,2,3],200,4096),50]),patch('build_guard.time.monotonic',return_value=1),patch('build_guard.shutil.disk_usage',return_value=types.SimpleNamespace(free=MIN_FREE+1)):
-   elapsed,used=g.check()
-  self.assertEqual(used,50);self.assertEqual(g.peak,4296);self.assertEqual(g.snapshot_incomplete,1);self.assertTrue(g.last_snapshot_complete)
- def test_three_incomplete_scans_fail_without_total(self):
+  with patch.object(g,'_size_once',side_effect=[IncompleteScratchSnapshot('target/ci-test/deps/rmetaABC123',[1,2,3],200,4096),50]),patch('build_guard.time.monotonic',return_value=1),patch('build_guard.shutil.disk_usage',return_value=types.SimpleNamespace(free=MIN_FREE+1)):
+   used=g.scan_epoch(31)
+  self.assertEqual(used,50);self.assertEqual(g.peak,4296);self.assertEqual(g.snapshot_incomplete,1);self.assertFalse(g.last_snapshot_complete)
+ def test_two_incomplete_scans_fail_without_total(self):
   g=self.guard()
-  with patch.object(g,'size',side_effect=lambda:(_ for _ in ()).throw(IncompleteScratchSnapshot('target/ci-test/deps/rmetaABC123',[1,2,3],1,4096))),patch('build_guard.time.monotonic',return_value=1),patch('build_guard.shutil.disk_usage',return_value=types.SimpleNamespace(free=MIN_FREE+1)):
-   with self.assertRaisesRegex(AssertionError,'INCOMPLETE_SNAPSHOT_RETRY_BOUND'):g.check()
-  self.assertIsNone(g.last_completed_bytes);self.assertFalse(g.last_snapshot_complete);self.assertIsNotNone(g.alias_failure)
+  with patch.object(g,'_size_once',side_effect=lambda:(_ for _ in ()).throw(IncompleteScratchSnapshot('target/ci-test/deps/rmetaABC123',[1,2,3],1,4096))),patch('build_guard.time.monotonic',return_value=1),patch('build_guard.shutil.disk_usage',return_value=types.SimpleNamespace(free=MIN_FREE+1)):
+   with self.assertRaisesRegex(AssertionError,'CENSUS_TWO_ATTEMPTS_EXHAUSTED'):g.scan_epoch(31)
+  self.assertIsNone(g.last_completed_bytes);self.assertFalse(g.last_snapshot_complete);self.assertEqual(g.snapshot_incomplete,2)
  def test_free_guard_applies_between_attempts(self):
   g=self.guard()
-  with patch.object(g,'size',side_effect=IncompleteScratchSnapshot('x',[1,2,3],1,1)),patch('build_guard.time.monotonic',return_value=1),patch('build_guard.shutil.disk_usage',side_effect=[types.SimpleNamespace(free=MIN_FREE+1),types.SimpleNamespace(free=MIN_FREE-1)]):
-   with self.assertRaisesRegex(AssertionError,'FREE_SPACE_GUARD'):g.check()
+  with patch.object(g,'_size_once',side_effect=IncompleteScratchSnapshot('x',[1,2,3],1,1)),patch('build_guard.time.monotonic',return_value=1),patch('build_guard.shutil.disk_usage',side_effect=[types.SimpleNamespace(free=MIN_FREE+1),types.SimpleNamespace(free=MIN_FREE-1)]):
+   with self.assertRaisesRegex(AssertionError,'FREE_SPACE_GUARD'):g.scan_epoch(31)
  def test_permission_not_retried(self):
   g=self.guard()
-  with patch.object(g,'size',side_effect=PermissionError(5,'synthetic denied')) as size,patch('build_guard.time.monotonic',return_value=1),patch('build_guard.shutil.disk_usage',return_value=types.SimpleNamespace(free=MIN_FREE+1)):
-   with self.assertRaises(PermissionError):g.check()
+  with patch.object(g,'_size_once',side_effect=PermissionError(5,'synthetic denied')) as size,patch('build_guard.time.monotonic',return_value=1),patch('build_guard.shutil.disk_usage',return_value=types.SimpleNamespace(free=MIN_FREE+1)):
+   with self.assertRaises(PermissionError):g.scan_epoch(31)
    self.assertEqual(size.call_count,1)
 class ProductionWalker(unittest.TestCase):
  def test_scratch_counted_via_handle_and_pruned_from_walk(self):

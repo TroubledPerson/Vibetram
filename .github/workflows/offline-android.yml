@@ -79,6 +79,12 @@
         },
         {
           "run": "python -B ci/test_ordinary_churn.py"
+        },
+        {
+          "run": "python -B ci/test_census_supervision.py"
+        },
+        {
+          "run": "python -B ci/test_fixture_privacy.py"
         }
       ]
     },

@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "c1baa5845c8227b98b94ccf1b21ae4be08369f699a2d102c1450c1aa77f7138a"
+    "sha256": "cfe488db3a2ced413d1303f816685b0dad72398bb37ec54b36712b33c17f3936"
   },
   {
     "path": "ASSET_EXCLUSIONS.json",
@@ -25,7 +25,7 @@
   },
   {
     "path": "CHANGELOG.md",
-    "sha256": "514531ec4d5f114a5ae6b86969ca8a57dbb79e99b5aebf78e6372f401abdf5b9"
+    "sha256": "39893b44eefde1e767f6805659efbaa9de38ca11c9fa042bde28589f88f908f2"
   },
   {
     "path": "CI_RUNNER_PLAN.md",
@@ -33,7 +33,7 @@
   },
   {
     "path": "CI_STATUS.md",
-    "sha256": "07f10c8ef8d591dddc40fa084d9cf8e63b84dba79d5a972eb45a64e2438e9cac"
+    "sha256": "7c2c4dfd9235ba1a19c860e6872bb44111278f40b7c17b61c1a78810c6e8b79d"
   },
   {
     "path": "DEPENDENCIES.md",
@@ -53,11 +53,11 @@
   },
   {
     "path": "MODIFICATIONS.json",
-    "sha256": "5911bb11c0edb57be11dd0a93a31344618aa526ae2769c11e946f2c645c88387"
+    "sha256": "1baf9c4631bce588f8ba2266d9cc8c8c4aa86683c241f68a50b997d92f3ff9f2"
   },
   {
     "path": "NOTICE",
-    "sha256": "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915"
+    "sha256": "211a2193ae8b87c24a5eb7b99dd2df50a0e9aeaa4c25fdfc36bcb67383702daf"
   },
   {
     "path": "README.md",
@@ -69,7 +69,7 @@
   },
   {
     "path": "SOURCE_PROVENANCE.md",
-    "sha256": "1e2447480c6959ad6d5075790dca8541dade5e70a63a2ab4779ca93eaf86a8ae"
+    "sha256": "4306c70dd6eb3a6c34023c173e8787fe9f959496f7155828b55ce1f7803aa416"
   },
   {
     "path": "android/AndroidManifest.xml",
@@ -157,7 +157,15 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "7c536bd712e7b479786c548ed8a1fcd41fa3d13e9add5a9e08307344f79cb989"
+    "sha256": "4e1837990cd9028d05991b90379e6871eee245116495b2200846ba6b7ed9b9f4"
+  },
+  {
+    "path": "ci/census_supervisor.py",
+    "sha256": "64e1587defcb1b5e28403490a942b8dfd1469150ed9e8638222bef98cf8c2aa6"
+  },
+  {
+    "path": "ci/census_worker.py",
+    "sha256": "94b8c0ea099ed13531f893045afaa00d27e83f1f474e442c3433140259a0d316"
   },
   {
     "path": "ci/check_source.py",
@@ -197,7 +205,7 @@
   },
   {
     "path": "ci/reparse_metadata.py",
-    "sha256": "13330011197ea665454b0d8f84a6ddfebcef735bb06a0f5dbe10feb43825c81c"
+    "sha256": "9c429216b4c5aa96de2728ee41f2e358f9be95129e8b0177f0d44ff406a7b089"
   },
   {
     "path": "ci/runner_preflight.py",
@@ -214,6 +222,18 @@
   {
     "path": "ci/test_build_guard.py",
     "sha256": "ec5b0bb8fdcfe681daeaf5df44eb0491d4196f6cb99cb95be934eb113b718afc"
+  },
+  {
+    "path": "ci/test_census_process_fixture.py",
+    "sha256": "a08b8e572e6a9db78c21180694c548a419370e53b3470d5dfb4b6038985e1f06"
+  },
+  {
+    "path": "ci/test_census_supervision.py",
+    "sha256": "7490e2a73fa07d4a8ca7ed81c3e28dc37421508911d0ac08245b052d33719f86"
+  },
+  {
+    "path": "ci/test_fixture_privacy.py",
+    "sha256": "2e8f9d9506d41b55b7887fc2b6cda80253608a06ecb816e02c61e1694d25baae"
   },
   {
     "path": "ci/test_lock_diagnostic.py",
@@ -253,7 +273,7 @@
   },
   {
     "path": "ci/test_scratch_snapshot.py",
-    "sha256": "1e0791f3a1e57617991387a0ba10a2cfd21f1063f2087e2ed32699a6f786d50c"
+    "sha256": "b42a228d34c38dec9532d6ca9e6d6b81eeb4f1b9f4481c65fb0b49d3a80bc3bc"
   },
   {
     "path": "ci/test_source_policy.py",
@@ -7409,7 +7429,7 @@
   },
   {
     "path": "codex-rs/cli/src/doctor/output.rs",
-    "sha256": "81dd8f5506b0c319aa55e12bce0fa2dfd79c6ec704b3a6d89280f59322f7febe"
+    "sha256": "6a9e4c7dea1da51aa92b0ed542c4a15ec1dc855cdb6d46b5f37ee468f8697211"
   },
   {
     "path": "codex-rs/cli/src/doctor/output/detail.rs",

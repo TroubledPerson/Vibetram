@@ -1,5 +1,6 @@
 """Monitored hosted unsigned-trial helpers; no signing or credential access."""
-import pathlib,os,subprocess,time,shutil,json,re,hashlib,stat
+import pathlib,os,subprocess,time,shutil,json,re,hashlib,stat,sys,uuid
+from census_supervisor import Sampler,run_census,CensusFailure,stop_compiler_tree
 from reparse_metadata import capture as capture_reparse_metadata,EXPECTED_ALIAS,EXPECTED_TARGET
 from scratch_snapshot import ScratchTracker,IncompleteScratchSnapshot,eligible as eligible_scratch,MAX_ATTEMPTS,MAX_INTERRUPTS
 from alias_accounting import ALIAS_METADATA_BYTES,AliasAppeared,exact_alias,safe_absence,disjoint_roots,lease_key,compare_baseline
@@ -78,17 +79,20 @@ def qualified_ordinary_churn(work,path,error):
 
 class Guard:
  def __init__(self,root,work,out,env):
+  self._setup(root,work,out,env)
+  assert shutil.disk_usage(root).free>=MIN_FREE+MAX_OUTPUT,'INSUFFICIENT_INITIAL_TRIAL_RESERVATION'
+  self.check()
+ def _setup(self,root,work,out,env):
   self.root=root;self.work=work;self.out=out;self.env=env;self.start=time.monotonic();self.count=0;self.peak=0;self.races=0
   self.roots=[work,out,pathlib.Path(env['CARGO_HOME']),pathlib.Path(env['RUSTUP_HOME'])]
-  assert shutil.disk_usage(root).free>=MIN_FREE+MAX_OUTPUT,'INSUFFICIENT_INITIAL_TRIAL_RESERVATION'
-  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.scratch_baselines={};self.scratch_parent_baselines={};self.last_completed_root_scans=[];self.accepted_snapshot_peak=0;self.ordinary_churn_count=0;self.recent_churn=[];self.snapshot_deadline=None;self.root_scans=[];self.enumeration_resource_checks=0;self.active_log_bytes=0;self.snapshot_incomplete=0;self.last_completed_bytes=None;self.last_snapshot_complete=False;self.check()
+  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.scratch_baselines={};self.scratch_parent_baselines={};self.last_completed_root_scans=[];self.accepted_snapshot_peak=0;self.ordinary_churn_count=0;self.recent_churn=[];self.snapshot_deadline=None;self.root_scans=[];self.enumeration_resource_checks=0;self.active_log_bytes=0;self.snapshot_incomplete=0;self.last_completed_bytes=None;self.last_snapshot_complete=False;self._sampler=None;self._log_paths=[];self.census_generation=0;self.census_pending=False;self.last_census_at=None;self.census_walk_count=0;self.supervision_samples=0;self.supervision_max_gap=0;self._command_deadline=None;self.worker_mode=False;self.census_cleanup_failures=[]
  def _leased_pass(self):
   holder={}
   def scan(report):
    key=lease_key(report);compare_baseline(self.alias_baseline,key)
    if self.alias_baseline is None:self.alias_baseline=key
    holder['key']=key;holder['bytes']=self._walk(report);return holder['bytes']
-  result=capture_reparse_metadata(self.work,EXPECTED_ALIAS,callback=scan);self.alias_last_result=result
+  result=capture_reparse_metadata(self.work,EXPECTED_ALIAS,callback=scan,**({'census_deadline':self.snapshot_deadline} if getattr(self,'worker_mode',False) else {}));self.alias_last_result=result
   if result.get('state')=='PASS_EXACT_ALIAS_LEASED_ACCOUNTING_METADATA':
    key=lease_key(result);compare_baseline(self.alias_baseline,key);compare_baseline(holder.get('key'),key)
    assert result.get('leasedScanCompleted') is True and 'bytes' in holder,'INCOMPLETE_LEASED_ACCOUNTING'
@@ -97,6 +101,24 @@ class Guard:
    return holder['bytes']
   if self.alias_baseline is None and safe_absence(result):return None
   raise AssertionError('ALIAS_METADATA_ACCOUNTING_STOP:'+result.get('state','UNKNOWN')+':'+str(result.get('osError',result.get('reason','UNQUALIFIED'))))
+ def scan_epoch(self,deadline):
+  self.worker_mode=True;self.census_walk_count=0
+  self.snapshot_deadline=deadline
+  try:
+   for attempt in range(2):
+    self._enumeration_resources(0)
+    try:
+     total=self._size_once();self._enumeration_resources(total);return total
+    except (OrdinaryScratchChurn,IncompleteScratchSnapshot) as error:
+     self.last_snapshot_complete=False
+     partial=error.partial if isinstance(error,OrdinaryScratchChurn) else error.partial_bytes+error.allocation_bytes
+     self.peak=max(self.peak,partial);self.snapshot_incomplete+=1
+     if isinstance(error,OrdinaryScratchChurn):self.ordinary_churn_count+=1
+     assert self.snapshot_incomplete<=256,'CENSUS_CHURN_GLOBAL_BOUND'
+     self.recent_churn=(self.recent_churn+[{'attempt':attempt+1,'confirmedPartialBytes':partial,'unmeasuredResidualBytes':None,'completedTotalReported':False}])[-2:]
+     self._enumeration_resources(partial)
+   raise AssertionError('CENSUS_TWO_ATTEMPTS_EXHAUSTED')
+  finally:self.snapshot_deadline=None
  def size(self):
   if self.alias_failure is not None:raise AssertionError(self.alias_failure)
   self.snapshot_deadline=time.monotonic()+5
@@ -140,14 +162,24 @@ class Guard:
   self.peak=max(self.peak,partial)
   reason=limits(shutil.disk_usage(self.root).free,self.peak,time.monotonic()-self.start,getattr(self,'active_log_bytes',0))
   assert not reason,reason
+  progress=getattr(self,'_census_progress',None)
+  if progress:progress(self.peak)
   deadline=getattr(self,'snapshot_deadline',None)
   assert deadline is None or time.monotonic()<deadline,'SNAPSHOT_VALIDATION_DEADLINE'
  def _walk(self,lease):
+  if getattr(self,'worker_mode',False):
+   assert self.census_walk_count<2,'CENSUS_TWO_WALKS_EXHAUSTED'
+   self.census_walk_count+=1
   self.root_scans=[]
   with ScratchTracker(self.work,self.scratch_baselines,self.scratch_parent_baselines) as scratch:return self._walk_tracked(lease,scratch)
  def _walk_tracked(self,lease,scratch):
   total=0;alias_visits=0;target_visits=0
-  def walk_error(error):raise error
+  observed_dirs=set()
+  def walk_error(error):
+   path=pathlib.Path(error.filename) if getattr(error,'filename',None) else None
+   if root==self.work and path in observed_dirs and compiler_scratch_root(self.work,path.parent) and isinstance(error,FileNotFoundError) and getattr(error,'winerror',None) in (2,3):
+    scratch.verify_parents();raise OrdinaryScratchChurn(path.relative_to(self.work).as_posix(),total)
+   raise error
   for index,root in enumerate(self.roots):
    begin=time.monotonic();last=begin;since=0;before=total
    row={'rootIndex':index,'ordinaryFileEntries':0,'directoryEntries':0,'scratchLeaves':0,'complete':False,'completedRootBytes':None}
@@ -165,7 +197,13 @@ class Guard:
      if root==self.work and compiler_scratch_root(self.work,pathlib.Path(folder)):scratch.lease_parent(pathlib.Path(folder));scratch.verify_parents()
      if root==self.work and pathlib.Path(folder)==self.work/EXPECTED_TARGET:target_visits+=1
      for name in list(dirs):
-      d=pathlib.Path(folder)/name;meta=fresh_entry(d);row['directoryEntries']+=1;since+=1
+      d=pathlib.Path(folder)/name
+      try:meta=fresh_entry(d)
+      except FileNotFoundError as error:
+       if root==self.work and compiler_scratch_root(self.work,d.parent) and getattr(error,'winerror',None)==2:
+        scratch.verify_parents();raise OrdinaryScratchChurn(d.relative_to(self.work).as_posix(),total)
+       raise
+      row['directoryEntries']+=1;since+=1
       if meta.st_file_attributes&0x400:
        if root==self.work and exact_alias(d.relative_to(root)):
         if lease is None:raise AliasAppeared('EXACT_ALIAS_APPEARED_DURING_UNLEASED_SNAPSHOT')
@@ -173,6 +211,7 @@ class Guard:
        self.pending_reparse=(root,d.relative_to(root))
        raise AssertionError('UNQUALIFIED_OUTPUT_DIRECTORY_LINK:'+str(d.relative_to(root)))
       assert stat.S_ISDIR(meta.st_mode) and meta.st_reparse_tag==0,'DIRECTORY_ENTRY_TYPE_OR_TAG_CHANGED'
+      observed_dirs.add(d)
       if root==self.work and compiler_scratch_root(self.work,d):scratch.lease_parent(d);scratch.verify_parents()
       if root==self.work and eligible_scratch(self.work,d):
        total+=scratch.scan(d,total);dirs.remove(name);row['scratchLeaves']+=1
@@ -210,52 +249,80 @@ class Guard:
     row['seconds']=round(time.monotonic()-begin,6);row['confirmedPartialRootBytes']=total-before
   if lease is not None:assert alias_visits==1 and target_visits==1,'ALIAS_OR_INDEPENDENT_TARGET_ENUMERATION_COUNT'
   return total
+ def _resource_sample(self):
+  assert self._command_deadline is None or time.monotonic()<=self._command_deadline,'COMMAND_DEADLINE'
+  log=0
+  for path in self._log_paths:
+   meta=fresh_entry(path);assert stat.S_ISREG(meta.st_mode) and not meta.st_file_attributes&0x400 and meta.st_reparse_tag==0,'COMMAND_LOG_IDENTITY_UNQUALIFIED';log+=meta.st_size
+  reason=limits(shutil.disk_usage(self.root).free,self.peak,time.monotonic()-self.start,log)
+  assert not reason,reason
  def check(self,log=0):
-  self.active_log_bytes=log
-  for attempt in range(MAX_ATTEMPTS):
-   elapsed=time.monotonic()-self.start
-   reason=limits(shutil.disk_usage(self.root).free,self.peak,elapsed,log);assert not reason,reason
-   try:used=self.size()
-   except IncompleteScratchSnapshot as error:
-    self.snapshot_incomplete+=1;self.last_snapshot_complete=False
-    self.peak=max(self.peak,error.partial_bytes+error.allocation_bytes)
-    reason=limits(shutil.disk_usage(self.root).free,self.peak,time.monotonic()-self.start,log);assert not reason,reason
-    if self.snapshot_incomplete>MAX_INTERRUPTS:
-     self.alias_failure='INCOMPLETE_SNAPSHOT_GLOBAL_BOUND';raise AssertionError(self.alias_failure)
-    print('INCOMPLETE_SNAPSHOT_RESCAN '+json.dumps({'attempt':attempt+1,'relative':error.relative,'verifiedIdentity':error.identity,'confirmedPartialBytes':error.partial_bytes,'deletedDirectoryAllocationHold':error.allocation_bytes,'unmeasuredResidualBytes':None,'completedTotalReported':False,'priorPeakRetained':self.peak}),flush=True)
-    continue
-   self.peak=max(self.peak,used);elapsed=time.monotonic()-self.start
-   reason=limits(shutil.disk_usage(self.root).free,used,elapsed,log);assert not reason,reason
-   self.last_completed_bytes=used;self.last_snapshot_complete=True;self.last_completed_root_scans=json.loads(json.dumps(getattr(self,'root_scans',[])));self.accepted_snapshot_peak=max(getattr(self,'accepted_snapshot_peak',0),used)
-   return elapsed,used
-  self.alias_failure='INCOMPLETE_SNAPSHOT_RETRY_BOUND';raise AssertionError(self.alias_failure)
+  from census_worker import export_state,import_state,spec_hash
+  self.census_generation+=1;self.census_pending=True
+  spec={'root':str(self.root),'work':str(self.work),'out':str(self.out),'cargo':self.env['CARGO_HOME'],'rustup':self.env['RUSTUP_HOME'],'globalStart':self.start}
+  request={'nonce':uuid.uuid4().hex,'generation':self.census_generation,'specHash':spec_hash(spec),'spec':spec,'state':export_state(self)}
+  own=self._sampler is None
+  if own:self._sampler=Sampler(self._resource_sample)
+  try:
+   def progress(n):self.peak=max(self.peak,n)
+   result=run_census([sys.executable,'-B',str(pathlib.Path(__file__).with_name('census_worker.py'))],request,self._sampler,progress)
+   assert isinstance(result,dict) and set(result)=={'bytes','state','rootCount','completedAt'},'INVALID_CENSUS_RESULT'
+   used=result['bytes'];assert type(used) is int and 0<=used<=MAX_OUTPUT and result['rootCount']==len(self.roots),'INVALID_CENSUS_TOTAL'
+   rows=result['state'].get('root_scans');assert isinstance(rows,list) and [r['rootIndex'] for r in rows]==list(range(len(self.roots))) and all(r['complete'] is True and type(r['completedRootBytes']) is int for r in rows),'INCOMPLETE_ROOT_CENSUS'
+   peak=self.peak;import_state(self,result['state']);self.peak=max(peak,self.peak,used);self.root_scans=rows
+   self.alias_last_result=result['state'].get('alias_last_result')
+   self.last_completed_bytes=used;self.last_snapshot_complete=True;self.last_completed_root_scans=rows
+   self.accepted_snapshot_peak=max(self.accepted_snapshot_peak,used);self.last_census_at=time.monotonic()
+   self._sampler.tick();return self.last_census_at-self.start,used
+  except BaseException as error:
+   self.last_snapshot_complete=False;self.census_cleanup_failures=getattr(error,'cleanup_failures',[])
+   payload=getattr(error,'payload',None)
+   if isinstance(payload,dict) and isinstance(payload.get('state'),dict):
+    state=payload['state'];self.root_scans=state.get('root_scans',[]);self.alias_last_result=state.get('alias_last_result')
+    for key in ('snapshot_incomplete','ordinary_churn_count','enumeration_resource_checks'):
+     value=state.get(key,0);assert type(value) is int and value>=0,'INVALID_FAILURE_COUNTER';setattr(self,key,max(getattr(self,key),value))
+    self.recent_churn=state.get('recent_churn',[])
+    count=state.get('census_walk_count',0);assert type(count) is int and 0<=count<=2,'INVALID_WALK_COUNT';self.census_walk_count=count
+    pending=state.get('pending_reparse')
+    if pending:
+     index=pending['rootIndex'];rel=pathlib.PurePosixPath(pending['relative']);assert type(index) is int and 0<=index<len(self.roots) and not rel.is_absolute() and '..' not in rel.parts
+     self.pending_reparse=(self.roots[index],rel)
+   self.alias_failure=str(error)[:200];raise
+  finally:
+   self.census_pending=False
+   self.supervision_max_gap=max(self.supervision_max_gap,self._sampler.max_gap)
+   if own:self.supervision_samples+=self._sampler.count;self._sampler=None
  def report(self):
-  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'lastCompletedRootScans':self.last_completed_root_scans,'acceptedSnapshotPeakBytes':self.accepted_snapshot_peak,'ordinaryChurnInvalidations':self.ordinary_churn_count,'recentDiscardedSnapshots':self.recent_churn,'rootScans':self.root_scans,'enumerationResourceChecks':self.enumeration_resource_checks,'enumerationCheckMaxEntries':256,'enumerationCheckIntervalSeconds':0.25,'snapshotDisappearanceRaces':self.races,'verifiedIncompleteSnapshots':self.snapshot_incomplete,'lastSnapshotComplete':self.last_snapshot_complete,'lastCompletedSnapshotBytes':self.last_completed_bytes,'unmeasuredIncompleteResidualBytes':None,'peakIsExactHistoricalMaximum':False,'snapshotAttemptBound':MAX_ATTEMPTS,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
+  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'censusPending':self.census_pending,'censusCleanupFailures':self.census_cleanup_failures,'lastCensusAgeSeconds':None if self.last_census_at is None else round(time.monotonic()-self.last_census_at,3),'currentAtomicTotalAvailable':False,'supervisionTargetSeconds':.25,'missedSupervisionLimitSeconds':1.0,'supervisionSamples':self.supervision_samples+(self._sampler.count if self._sampler else 0),'maximumObservedSupervisionGap':max(self.supervision_max_gap,self._sampler.max_gap if self._sampler else 0),'censusWindowSeconds':30,'censusAttemptBound':2,'lastReportedCensusWalkCount':self.census_walk_count,'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'lastCompletedRootScans':self.last_completed_root_scans,'acceptedSnapshotPeakBytes':self.accepted_snapshot_peak,'ordinaryChurnInvalidations':self.ordinary_churn_count,'recentDiscardedSnapshots':self.recent_churn,'rootScans':self.root_scans,'enumerationResourceChecks':self.enumeration_resource_checks,'enumerationCheckMaxEntries':256,'enumerationCheckIntervalSeconds':0.25,'snapshotDisappearanceRaces':self.races,'churnInvalidatedCensusSnapshots':self.snapshot_incomplete,'lastSnapshotComplete':self.last_snapshot_complete,'lastCompletedSnapshotBytes':self.last_completed_bytes,'unmeasuredIncompleteResidualBytes':None,'peakIsExactHistoricalMaximum':False,'snapshotAttemptBound':2,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
  def run(self,args,cwd=None,env=None,capture=False,timeout=None):
   self.check();self.count+=1;index=self.count;label=pathlib.Path(str(args[0])).name
   stdout=self.work/f'command-{index:02d}.stdout.log';stderr=self.work/f'command-{index:02d}.stderr.log'
-  print(f'TRIAL_STAGE {index} {label}',flush=True);proc=None;started=time.monotonic();last=started;code=None
+  print(f'TRIAL_STAGE {index} {label}',flush=True);proc=None;started=time.monotonic();last=started;code=None;self._command_deadline=None if timeout is None else started+timeout;self._sampler=Sampler(self._resource_sample)
   try:
    with stdout.open('xb') as a,stderr.open('xb') as b:
+    self._log_paths=[stdout,stderr];self._sampler.tick()
     proc=subprocess.Popen([str(x) for x in args],cwd=cwd or self.root,env=env or self.env,stdout=a,stderr=b)
+    next_census=time.monotonic()
     while True:
      assert timeout is None or time.monotonic()-started<=timeout,'COMMAND_DEADLINE'
-     elapsed,used=self.check(stdout.stat().st_size+stderr.stat().st_size)
+     self._sampler.tick()
+     if time.monotonic()>=next_census:
+      elapsed,used=self.check();next_census=time.monotonic()+5
+     else:elapsed=time.monotonic()-self.start;used=self.last_completed_bytes
      if proc.poll() is not None:break
      if time.monotonic()-last>=30:
       print(f'TRIAL_PROGRESS stage={index} elapsed={int(elapsed)} retainedBytes={used} freeBytes={shutil.disk_usage(self.root).free}',flush=True);last=time.monotonic()
-     time.sleep(5)
-   code=proc.returncode;self.check(stdout.stat().st_size+stderr.stat().st_size)
+     time.sleep(.25)
+   code=proc.returncode;self._command_deadline=None;self.check(stdout.stat().st_size+stderr.stat().st_size)
    assert code==0,'SUBPROCESS_FAILED'
    result=subprocess.CompletedProcess(args,code,stdout.read_text(encoding='utf-8',errors='replace') if capture else None,stderr.read_text(encoding='utf-8',errors='replace') if capture else None)
    self.commands.append({'stage':index,'tool':label,'exit':code,'seconds':round(time.monotonic()-started,3)})
    (self.work/'trial-progress.json').write_text(json.dumps(self.report(),indent=2),encoding='utf-8')
    return result
   except BaseException as error:
-   if proc and proc.poll() is None:
-    subprocess.run([str(pathlib.Path(os.environ['SystemRoot'])/'System32/taskkill.exe'),'/PID',str(proc.pid),'/T','/F'],capture_output=True,timeout=20)
-    proc.wait(timeout=10)
-   if self.pending_reparse and self.reparse_result is None:
+   self._command_deadline=None
+   teardown=stop_compiler_tree(proc,self._sampler,os.environ['SystemRoot'])
+   if not teardown and self.pending_reparse and self.reparse_result is None:
     root,relative=self.pending_reparse
     self.reparse_result=capture_reparse_metadata(root,relative)
     self.reparse_result.update(commandStage=index,observedDuringTool=label,phaseProcessId=proc.pid if proc else None,creatorProcessProven=False,childStoppedBeforeMetadata=proc is None or proc.poll() is not None)
@@ -266,8 +333,10 @@ class Guard:
    for name,path in [('stdoutTail',stdout),('stderrTail',stderr)]:
     if path.exists():
      with path.open('rb') as f:f.seek(max(0,path.stat().st_size-16000));tails[name]=redact(f.read().decode('utf-8',errors='replace'))
-   report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,'category':str(error)[:200],**tails}
+   report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,'teardownFailures':teardown,'knownParentExitObserved':proc is None or proc.poll() is not None,'knownParentExitCode':None if proc is None else proc.poll(),'processTreeExitIndependentlyVerified':False,'category':str(error)[:200],**tails}
    (self.work/'failure-summary.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
    print(json.dumps(report,indent=2),flush=True)
    raise
-
+  finally:
+   if self._sampler:self.supervision_samples+=self._sampler.count;self.supervision_max_gap=max(self.supervision_max_gap,self._sampler.max_gap)
+   self._sampler=None;self._command_deadline=None

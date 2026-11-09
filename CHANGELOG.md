@@ -40,3 +40,9 @@ The source/host-test checkpoint is complete; the Android APK, owner-phone testin
 ### Product direction
 
 Vibetram Mobile is the Android prototype. Vibetram Desktop is planned as an Electron-free client intended to reduce overhead and RAM usage; no desktop release or comparative RAM benchmark exists. The project is independent and unaffiliated with OpenAI. No logo asset is included until the owner's clean terminal-and-headphones artwork, without old text/tagline, is available and cleared for use.
+
+## Unreleased CI and source maintenance
+
+- Separate 250 ms target resource supervision from a 30-second census worker, with at most two full walks and bounded fail-closed teardown. Retained-space samples are non-atomic, not a hard write quota.
+- Replace two static AWS-shaped redaction test fixtures with new deterministic constructions; preserve upstream notices and production redaction behavior. Historical copies and the open alert are not erased or resolved.
+- Python/synthetic qualification is recorded separately from unrun native clean-build, Rust CLI test and phone validation.

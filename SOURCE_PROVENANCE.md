@@ -39,3 +39,6 @@ integration-java contains the five final 1.91 host integration files. legacy-and
 
 
 This snapshot adds notices and documentation only; it does not alter the preserved engineering inputs or prove a reproducible Android release. The maintainer must qualify complete public build inputs and required notices before a release claim.
+## Subsequent fixture-only source patch
+
+The earlier7802-matching/25-modified workspace counts describe the pre-remediation checkpoint. A subsequent minimal modification to cli/src/doctor/output.rs replaces two adjacent static AWS-shaped test values with new deterministic constructions and adds a modification notice. Production redaction code is unchanged. The new patch and its before/after provenance are recorded in MODIFICATIONS.json. Required upstream attribution/licences remain. Historical Git objects may retain the prior fixture; no history erasure or credential invalidity is claimed.

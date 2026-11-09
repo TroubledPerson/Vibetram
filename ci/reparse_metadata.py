@@ -50,7 +50,7 @@ def stable_record(before,after):
  assert before==after,'REPARSE_DATA_RACE'
 def os_failure(code):
  return {'state':'OS_ACCESS_DENIED_STOP' if code==5 else 'OS_METADATA_UNAVAILABLE_STOP','osError':code,'targetOpened':False}
-def capture(root,relative,callback=None):
+def capture(root,relative,callback=None,census_deadline=None):
  result={'state':'UNQUALIFIED_METADATA_ONLY_STOP','relativePath':str(relative).replace(chr(92),'/'),'targetOpened':False,'targetContentsRead':False,'targetMetadataOpenedIndependently':False,'physicalTargetMetadataQualified':False,'linkTraversed':False,'permissionsChanged':False,'accountingRuleChanged':False}
  handles=[];start=time.monotonic();callback_error=None
  try:
@@ -117,9 +117,12 @@ def capture(root,relative,callback=None):
    try:result['accountedBytes']=callback(result)
    except BaseException as error:callback_error=error;raise
    assert type(result['accountedBytes']) is int and result['accountedBytes']>=0,'INVALID_LEASED_ACCOUNTING_RESULT'
-   assert time.monotonic()-start<5,'ALIAS_VALIDATED_SCAN_DEADLINE'
+   if census_deadline is None:assert time.monotonic()-start<5,'ALIAS_VALIDATED_SCAN_DEADLINE'
+   else:assert type(census_deadline) in (int,float) and time.monotonic()<census_deadline,'CENSUS_CALLBACK_DEADLINE'
+   post_started=time.monotonic()
    regular_chain([info(h) for h in target_handles],row['identity'][0],row['identity'])
    stable(target_before,[info(h) for h in target_handles]);stable(before,[info(h) for h in source_handles]);stable_record(raw,record())
+   assert time.monotonic()-post_started<5,'POST_CALLBACK_METADATA_DEADLINE'
    result.update(state='PASS_EXACT_ALIAS_LEASED_ACCOUNTING_METADATA',leasedScanCompleted=True,targetTreeEnumeratedIndependently=True)
 
  except OSError as error:
