@@ -1,0 +1,2 @@
+# Source bindings require exact bytes on every checkout, including Windows.
+* -text

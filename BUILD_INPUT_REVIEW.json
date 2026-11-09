@@ -1,0 +1,14 @@
+{
+  "literalIncludesExamined": 126,
+  "missingLiteralInputs": [],
+  "escapingLiteralInputs": [],
+  "dynamicMacrosBuildScriptsAndCleanRunner": "NOT_EXECUTED_OR_FULLY_QUALIFIED",
+  "pinnedRequiredTools": [
+    "Rust1.95.0 Android ARM64 target",
+    "NDK30.0.16248370 API29",
+    "SDK/platform/build-tools35.0.0",
+    "JDK17"
+  ],
+  "runnerPreflight": "40GiB free required by candidate; actual GitHub availability not checked",
+  "signing": "Unsigned only; release job remains disabled"
+}

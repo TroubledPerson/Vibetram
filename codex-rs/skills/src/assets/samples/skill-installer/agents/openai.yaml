@@ -1,0 +1,4 @@
+# Vibetram modification: optional upstream icon references omitted; see ASSET_EXCLUSIONS.json.
+interface:
+  display_name: "Skill Installer"
+  short_description: "Install curated skills from openai/skills or other repos"

@@ -1,0 +1,265 @@
+{
+  "upstream": "openai/codex",
+  "commit": "fe74a774532af67b5a4a3dec03ce9469e17f89af",
+  "modifiedFilesBeforeNoticePrefixes": [
+    {
+      "path": "codex-rs/app-server-transport/src/connection_auth.rs",
+      "upstreamGitBlobSHA1": "afa7b4f3c7df7330128e489fb2c2b1a6bc6f41c5",
+      "normalizedLocalGitBlobSHA1": "2cd134d273e6974beca967d6e4eced75e747076d",
+      "localSHA256": "1809c8cf814e89ec49fe540af16a57e551a00aaad1edab1be71a7c8a4590f035",
+      "bytes": 2312,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/lib.rs",
+      "upstreamGitBlobSHA1": "f10b2d381015e48659ad37fc6a3eba9d60896d8e",
+      "normalizedLocalGitBlobSHA1": "f3d8153d7548268ad52d02233321e0cd34f80374",
+      "localSHA256": "a8ab49f777b28b481995c37eecdcac14913a91b2e23a9b1d86b6d42328fe8364",
+      "bytes": 1880,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/mod.rs",
+      "upstreamGitBlobSHA1": "8931fdfb7f3247ed8f3a07907750ee45b208497e",
+      "normalizedLocalGitBlobSHA1": "a4c340c7519c25e8313cd15dbe3061f3823db86e",
+      "localSHA256": "9a33af0ac9eb565403e0ad67978a8067c224e65168ee4807765780e2061e0b2b",
+      "bytes": 21492,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/client_tracker.rs",
+      "upstreamGitBlobSHA1": "7c46632e3ddb8ed6e3d68f0d53fe716454d54781",
+      "normalizedLocalGitBlobSHA1": "7f883d87f71c724259b729713dae1d6a4b971422",
+      "localSHA256": "c3446c27e85c2344bf6603dc8bc97379f55df402125fccd950aba313bf8d44cc",
+      "bytes": 41263,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/controller.rs",
+      "upstreamGitBlobSHA1": "e7fb3c3091be5641643395403d4428e81ff1c715",
+      "normalizedLocalGitBlobSHA1": "4d2b2b401f92974faf6ccd3635f2f148d9d573a3",
+      "localSHA256": "610593660f0ca95c77b092b5f51182fe32b9770fe0fbd3267c7f8f7f2157c565",
+      "bytes": 15648,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/desired_state.rs",
+      "upstreamGitBlobSHA1": "86c41aa4d0b54d4198e02aa849d16184b66e25f2",
+      "normalizedLocalGitBlobSHA1": "71ea6a446f01d2a15a53f4d3be257a118fb77639",
+      "localSHA256": "f7f17833f83e16cbd414fc1c559f51810fbc57d25d2770ab6fdfe32cf43a9ebd",
+      "bytes": 7952,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/enroll.rs",
+      "upstreamGitBlobSHA1": "638d797cf3a8c926925bda6bd67c4e2574bfd227",
+      "normalizedLocalGitBlobSHA1": "c81e8392738ef814d8fb1cd3048b411cb0fa26f7",
+      "localSHA256": "f92985c789f2dc1f11ff8942ca057e8638abb33c2c0c223084defb0290dd99fd",
+      "bytes": 29621,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/mod.rs",
+      "upstreamGitBlobSHA1": "aa672d36caa01edad5c3a2691565c674123d63ba",
+      "normalizedLocalGitBlobSHA1": "7904290e6559bba12e4851275c6decb3e866e5db",
+      "localSHA256": "a51a48a12b057bc1238e0d0f849f2c4e6f1b479d11cc4852c49f1552e7b36d9c",
+      "bytes": 39138,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/persistence.rs",
+      "upstreamGitBlobSHA1": "aa0038f4bcdf22d2bd7fb356b9dec7e385096c83",
+      "normalizedLocalGitBlobSHA1": "a5b3b62438242ac1627c2cf9c7669b695818e6e7",
+      "localSHA256": "0d05472d7e1864971b5c43030535a5c342e94609d00f68e21b450029cade4abe",
+      "bytes": 5361,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/protocol.rs",
+      "upstreamGitBlobSHA1": "e3c122c1f7c2e90638c083fe9f40638d5f718aca",
+      "normalizedLocalGitBlobSHA1": "c3d9e9635f7bd4494f388ba9c2395c0ff1aaaee1",
+      "localSHA256": "c18644b8226e2b8f077c1962fe6fe24557f1b88a35c0549a5b90f22706f7cf28",
+      "bytes": 14278,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/segment.rs",
+      "upstreamGitBlobSHA1": "f14d62e4f20ca8fd09d351941a61ca2dd783f33d",
+      "normalizedLocalGitBlobSHA1": "ecc935e0bc530a1ca996736f2ecd47f72503dffb",
+      "localSHA256": "a2b6faa92222a808b76f1f6664c900264aadd59684b9242dedf455afaa56df4a",
+      "bytes": 16911,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/server_api.rs",
+      "upstreamGitBlobSHA1": "ab7d7fd8a08c0f50aa82e022c9661b7dddc01d9d",
+      "normalizedLocalGitBlobSHA1": "26c22e8efc01acdbc4484ff4a4efa9d214b1f02e",
+      "localSHA256": "696daac371f938ef05c2baedae897103b66ab3d19136ed676ac411b2473c75fe",
+      "bytes": 13671,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/tests.rs",
+      "upstreamGitBlobSHA1": "2337b2a658671f6bf2eebbba41d221a6bd748fca",
+      "normalizedLocalGitBlobSHA1": "f6ebdf549e17fb08f3eb730c71facb5ab5a8a3e1",
+      "localSHA256": "870a5af76e4a7696c10bf138c42fdac9787c0a2d53c9a1f455a66fabaabb330f",
+      "bytes": 114416,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/tests/clients_tests.rs",
+      "upstreamGitBlobSHA1": "1aea56af42dd739819ea8920211fc36d8de9c6b6",
+      "normalizedLocalGitBlobSHA1": "f9e3f4aa8194b62d6ce8bfd0f9d01336e646e4b7",
+      "localSHA256": "3a17a6d7b19726040b425d27110ffdc73a4d74ff9407b26e725f55e59960c98b",
+      "bytes": 15674,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/tests/pairing_tests.rs",
+      "upstreamGitBlobSHA1": "b343242c8a158c8331c29b35bb786b948eae23f4",
+      "normalizedLocalGitBlobSHA1": "d5339e6ca7fd418c061688ef755e1702d3ba92a9",
+      "localSHA256": "8ad7c578845443b56548c1dffd91758515ddc2bc9109c6ebd6a1c415d7ef8fce",
+      "bytes": 43109,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/websocket.rs",
+      "upstreamGitBlobSHA1": "d50d31771d9a9936f0455752af3c51a0fed59383",
+      "normalizedLocalGitBlobSHA1": "9ba25aa22aa60a37da85d7c42b1d6f3a601a9e3d",
+      "localSHA256": "250c87c193fc27a778463b8d93ee355467f1953d84025ae9549363c0166eabce",
+      "bytes": 148269,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/unix_socket.rs",
+      "upstreamGitBlobSHA1": "3f70bcced464e3ce0592c722d155efd06ea04ae1",
+      "normalizedLocalGitBlobSHA1": "555561b998322896666fa2abc1c6d1932ae331fc",
+      "localSHA256": "3709784f643b66e89b6ab14bb4db4f03d9bdb9f3999261cef130628434f41a8b",
+      "bytes": 14155,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server/src/connection_rpc_gate.rs",
+      "upstreamGitBlobSHA1": "46638e585a37de0465c1881b784ea49edb32d9e8",
+      "normalizedLocalGitBlobSHA1": "3e1533adb1719446a9ac02cf6d61d4e42a721bbd",
+      "localSHA256": "05c4bdc01abc7db80905110b626219e192033e884d34dfa677984fbfa98bccce",
+      "bytes": 7956,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server/src/lib.rs",
+      "upstreamGitBlobSHA1": "fc11b838a0bb7fdb19d4acfee723bcaf349fe2ef",
+      "normalizedLocalGitBlobSHA1": "52e755f7125cddde4393cd497954c3a2de6e01e0",
+      "localSHA256": "925962b18f5a144c426d1b2056f5dc17332935bbf17874cec86f428493707c73",
+      "bytes": 67646,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/app-server/src/main.rs",
+      "upstreamGitBlobSHA1": "4f36d3ae6c1c6300f9a0d1aa726f69005d6b545b",
+      "normalizedLocalGitBlobSHA1": "afffe60e4bebefc7f66d881cde567e6c0942fe4f",
+      "localSHA256": "44dc9add8dba9e5f11311c484e4693e40ec4975271d83526343884327fa7bfd9",
+      "bytes": 5651,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/arg0/Cargo.toml",
+      "upstreamGitBlobSHA1": "4619d6203b122124af465b11ddf9fa7c3c9966d4",
+      "normalizedLocalGitBlobSHA1": "c66c8c9b242ded8ef4543d9e49881f90b80dce7e",
+      "localSHA256": "198685c4771550a0e2106247c62588cebe27f8de5036beb5c6c58c486a6e9796",
+      "bytes": 1048,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/arg0/src/lib.rs",
+      "upstreamGitBlobSHA1": "6b0d99a4372414409e2cdfd220c944b8190e51cc",
+      "normalizedLocalGitBlobSHA1": "721506672f4d211621a331119683b019e6275588",
+      "localSHA256": "351b8355de463ebc6b4548e5d6d10327076b65156cf4c85f0c99bb250f657a3f",
+      "bytes": 30112,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/core/Cargo.toml",
+      "upstreamGitBlobSHA1": "693fbd7b78d2b62889528b8eef560d2e708554ee",
+      "normalizedLocalGitBlobSHA1": "b222bd6bcaaad358d60df7d004c8ce8c914dae34",
+      "localSHA256": "54c37c99841e386626a36967a30ddcbdd67afa37ba075afe588e79e4c9dda13f",
+      "bytes": 6647,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/core/src/installation_id.rs",
+      "upstreamGitBlobSHA1": "a42e6b6d8353c8b5e4e14e5413850402bd5cb64b",
+      "normalizedLocalGitBlobSHA1": "81d560fa8f2ec98fabbdda3c4bcb1c8e3229e8f5",
+      "localSHA256": "9adecb629e2668bbfc612850fdb3582022cdcff6aefda26f979592ca3ef5d3f0",
+      "bytes": 5415,
+      "classification": "MODIFIED"
+    },
+    {
+      "path": "codex-rs/network-proxy/src/credential_broker/replacement.rs",
+      "upstreamGitBlobSHA1": "fde7c42ab93cb438c313ac6be32615bf386b2b6c",
+      "normalizedLocalGitBlobSHA1": "ece08e27da91334095d06d8bc5fd98bc94386e48",
+      "localSHA256": "f7fa3fa46613a9b5a179b412db441b3cdb732d3c928f1a022f9bd49667ea30b8",
+      "bytes": 5355,
+      "classification": "MODIFIED"
+    }
+  ],
+  "originalNewNativeFilesBeforePrefixes": [
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/managed_pairing_tests.rs",
+      "bytes": 17697,
+      "sha256": "499eeec7c5ba0bf43a5ee2ee6cdcd4715c3e400ec9e63ad0c0e8f496d00c42ca"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/monitored_native_unit.rs",
+      "bytes": 8650,
+      "sha256": "b780bf65a409294e8522e9b08cc760b459527db542e9ec580e9eb6c806cd44d9"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/monitored_outbound_unit.rs",
+      "bytes": 1971,
+      "sha256": "733584abfeab5dfda2037ddfbf3c692c00276e016296b7b343e83942469f95aa"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/pilot_metadata.rs",
+      "bytes": 710,
+      "sha256": "d9563b645a2772efe02a37e8764407997a757798510843c127efcaff0af7a072"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/status_only_dispatch_tests.rs",
+      "bytes": 3270,
+      "sha256": "97e23a99e833b42a624ec01deb90de74176e2adaf8255bf1df61fc30bfbacfc4"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/status_only_gate.rs",
+      "bytes": 17149,
+      "sha256": "ca69bb7633a795d9a84f78fa7b2400b4250b313d84998861794f914db853b521"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/status_only_gate_tests.rs",
+      "bytes": 16374,
+      "sha256": "8a306927b7bd75a9be3e9d8784a14aafffac31ae7f2a7ce3a8a155dc7bfba8da"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/status_session.rs",
+      "bytes": 1991,
+      "sha256": "d6650b99dfe1bb2b4687aeb869f94cddeff8303b7ea371a79352e15c42440cf3"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/status_session_backend.rs",
+      "bytes": 12742,
+      "sha256": "9dda087e66e2e88478ea2ae5990ff99629fb7fe5b7682d9f561857996116673b"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/status_session_tests.rs",
+      "bytes": 13796,
+      "sha256": "b1c239e6dfdb77b26c57da1ddab4e50527e3426a35b034139e422d229265ef78"
+    },
+    {
+      "path": "codex-rs/app-server-transport/src/transport/remote_control/status_writer.rs",
+      "bytes": 2889,
+      "sha256": "4a8f05d5e29a3d956e8d4b4086b733f22f0bcaa8e3efb6c5a7fcd52fcd36503d"
+    }
+  ],
+  "upstreamFilesContentMatchingAfterLineEndingNormalization": 7802,
+  "notes": "Only copied candidate files receive notice comments. Original validated 1.91 engineering sources and APK remain untouched."
+}

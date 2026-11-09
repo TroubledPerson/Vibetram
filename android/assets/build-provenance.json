@@ -1,0 +1,36 @@
+{
+  "project": "Vibetram Mobile",
+  "version": "1.91-alpha-offline",
+  "package": "org.local.vibetrammobile",
+  "versionCode": 93,
+  "upstream": {
+    "repository": "https://github.com/openai/codex",
+    "tag": "rust-v0.156.0",
+    "commit": "fe74a774532af67b5a4a3dec03ce9469e17f89af"
+  },
+  "sourceID": "4a8d0c253a38b0e0b0be047b9b4b65f42519eab9e268f19e0b05474653959303",
+  "nativeSHA256": "6a5433d6e50835e29bbf0fa1dd4bd56a865faa835ad171aa7184c8d86dce0914",
+  "dexSHA256": "fcbca84d9a945b4af84ffa3084d6eca12344dbab0c6bf39536ef91715cda9eeb",
+  "D8InputJarSHA256": "ac78a592ff7ed823a48ec4bbecca9e8e23344f6ba3eda5969709781e408a5bae",
+  "nativeMode": "Offline test driver using production controller/gates with synthetic auth/enrollment and in-memory transport",
+  "hostNativeChecks": {
+    "gate": 27,
+    "focused": 19,
+    "session": 26,
+    "managedPairing": 16
+  },
+  "hostJavaReportedChecksAgainstD8Input": {
+    "controller": 24,
+    "managedPairing": 44,
+    "combinedRealTimeBridge": 21
+  },
+  "phoneTesting": "PENDING_NOT_RUN",
+  "realAuthentication": false,
+  "livePairing": false,
+  "InternetPermission": false,
+  "captureFileShellModelTools": false,
+  "persistentHostRegistration": false,
+  "portableCleanBuild": "NOT_ESTABLISHED; isolated cached build with explicit input pins",
+  "priorSourcePublication": "https://github.com/TroubledPerson/Vibetram/commit/fa3bafbb29fee843410513b24cafd73cc51453e0",
+  "priorPublicationIsNotThisCompleteAPKSource": true
+}

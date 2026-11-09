@@ -1,0 +1,75 @@
+{
+  "status": "OPTIONAL_SAMPLE_AND_DOCUMENTATION_ARTWORK_OMITTED",
+  "files": [
+    {
+      "path": "codex-rs/skills/src/assets/samples/imagegen/assets/imagegen.png",
+      "bytes": 1711,
+      "sha256": "95952f644064eb9e890f98d8db07216347186526e4c41ad66d3420629eb86e20",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/skills/src/assets/samples/openai-docs/assets/openai.png",
+      "bytes": 1429,
+      "sha256": "156cc84d7332bfe95b310350bd470b690d22aa33d65340cc6c2e06022946194c",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/skills/src/assets/samples/plugin-creator/assets/plugin-creator.png",
+      "bytes": 1563,
+      "sha256": "a4024b0306ddb05847e1012879d37aaf1e658205199da596f5145ed7a88d9162",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/skills/src/assets/samples/skill-creator/assets/skill-creator.png",
+      "bytes": 1563,
+      "sha256": "a4024b0306ddb05847e1012879d37aaf1e658205199da596f5145ed7a88d9162",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/skills/src/assets/samples/skill-installer/assets/skill-installer.png",
+      "bytes": 1086,
+      "sha256": "d0a230b1a79b71b858b7c215a0fbb0768d6459c14ea4ef80c61592629bf0e605",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/vendor/bubblewrap/bubblewrap.jpg",
+      "bytes": 40239,
+      "sha256": "52b05a562bc4d5aaf4adc1e5306dc4450790f2e4eb9a34efe43a9fe823a8c8b4",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/skills/src/assets/samples/imagegen/assets/imagegen-small.svg",
+      "bytes": 2894,
+      "sha256": "087c1632a3b8a2ed4d6218952e7ba7ae2221a979f84233667ed2c587998784da",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/skills/src/assets/samples/openai-docs/assets/openai-small.svg",
+      "bytes": 1094,
+      "sha256": "85ef0a2cde497872edec1525f1d538ccc42b33ff47acdbb88499a1631a4bdb21",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/skills/src/assets/samples/plugin-creator/assets/plugin-creator-small.svg",
+      "bytes": 1322,
+      "sha256": "edb19a0c59f9a1b5253b9af6d2f9f03cac27b2fe6a0275ebccbbdbff07891a1a",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/skills/src/assets/samples/skill-creator/assets/skill-creator-small.svg",
+      "bytes": 1322,
+      "sha256": "edb19a0c59f9a1b5253b9af6d2f9f03cac27b2fe6a0275ebccbbdbff07891a1a",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    },
+    {
+      "path": "codex-rs/skills/src/assets/samples/skill-installer/assets/skill-installer-small.svg",
+      "bytes": 926,
+      "sha256": "099e5a4b5e5f0f918a8de0d2059f0a86211da623dbb75f86f13dc9f7c08c778d",
+      "reason": "Optional upstream sample icon or documentation image; no replacement artwork substituted"
+    }
+  ],
+  "staticReferences": "Five icon_small/icon_large pairs and one documentation Markdown image removed",
+  "compilationNecessity": "No exact compiler include requires these images; skills build.rs enumerates directory and include_dir embeds remaining entries. Clean compilation not performed.",
+  "backupsOutsidePublicationTree": true,
+  "newArtworkAdded": false
+}

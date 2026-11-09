@@ -1,0 +1,4 @@
+# Vibetram modification: optional upstream icon references omitted; see ASSET_EXCLUSIONS.json.
+interface:
+  display_name: "Skill Creator"
+  short_description: "Create or update a skill"

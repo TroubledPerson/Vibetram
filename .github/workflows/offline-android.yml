@@ -1,0 +1,92 @@
+{
+  "name": "Vibetram offline source and unsigned Android qualification",
+  "on": {
+    "pull_request": null,
+    "push": {
+      "branches": [
+        "main"
+      ]
+    },
+    "workflow_dispatch": {
+      "inputs": {
+        "compile_native": {
+          "description": "Attempt clean native dependencies and unsigned APK on the standard free runner",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "offline-${{ github.workflow }}-${{ github.ref }}",
+    "cancel-in-progress": true
+  },
+  "jobs": {
+    "source-checks": {
+      "runs-on": "windows-latest",
+      "timeout-minutes": 10,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "run": "python -B ci/test_source_policy.py"
+        },
+        {
+          "run": "python -B ci/check_source.py"
+        }
+      ]
+    },
+    "unsigned-qualification": {
+      "if": "github.event_name == 'workflow_dispatch' && inputs.compile_native && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "needs": "source-checks",
+      "runs-on": "windows-latest",
+      "timeout-minutes": 120,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "run": "python -B ci/cloud_build.py"
+        },
+        {
+          "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
+          "with": {
+            "name": "offline-unsigned-${{ github.sha }}",
+            "path": "dist/*",
+            "if-no-files-found": "error",
+            "retention-days": 3
+          }
+        }
+      ]
+    },
+    "release": {
+      "if": "${{ false }}",
+      "needs": "unsigned-qualification",
+      "runs-on": "windows-latest",
+      "permissions": {
+        "contents": "write"
+      },
+      "steps": [
+        {
+          "run": "throw 'CI signing and signed-release policy have not been approved; no release created'"
+        }
+      ]
+    }
+  }
+}

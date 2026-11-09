@@ -1,0 +1,1 @@
+package org.local.codexisolation; final class BuildPins { static final String NATIVE_SHA256="6a5433d6e50835e29bbf0fa1dd4bd56a865faa835ad171aa7184c8d86dce0914"; static final String SOURCE_ID="4a8d0c253a38b0e0b0be047b9b4b65f42519eab9e268f19e0b05474653959303"; private BuildPins(){} }

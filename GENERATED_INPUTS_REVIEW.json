@@ -1,0 +1,70 @@
+{
+  "buildScripts": [
+    {
+      "path": "codex-rs/build-info/build.rs",
+      "literalExternalCommands": [],
+      "mentionsOUT_DIR": false,
+      "mentionsNetworkSource": false,
+      "executed": false
+    },
+    {
+      "path": "codex-rs/bwrap/build.rs",
+      "literalExternalCommands": [],
+      "mentionsOUT_DIR": true,
+      "mentionsNetworkSource": false,
+      "executed": false
+    },
+    {
+      "path": "codex-rs/cli/build.rs",
+      "literalExternalCommands": [],
+      "mentionsOUT_DIR": false,
+      "mentionsNetworkSource": false,
+      "executed": false
+    },
+    {
+      "path": "codex-rs/code-mode-protocol/build.rs",
+      "literalExternalCommands": [],
+      "mentionsOUT_DIR": false,
+      "mentionsNetworkSource": false,
+      "executed": false
+    },
+    {
+      "path": "codex-rs/linux-sandbox/build.rs",
+      "literalExternalCommands": [],
+      "mentionsOUT_DIR": false,
+      "mentionsNetworkSource": false,
+      "executed": false
+    },
+    {
+      "path": "codex-rs/skills/build.rs",
+      "literalExternalCommands": [],
+      "mentionsOUT_DIR": false,
+      "mentionsNetworkSource": false,
+      "executed": false
+    },
+    {
+      "path": "codex-rs/windows-sandbox-rs/build.rs",
+      "literalExternalCommands": [],
+      "mentionsOUT_DIR": false,
+      "mentionsNetworkSource": false,
+      "executed": false
+    }
+  ],
+  "requiredRunnerInputs": [
+    "Rust1.95.0 plus aarch64-linux-android target",
+    "JDK17 JAVA_HOME_17_X64",
+    "SDK android-35 and build-tools35.0.0",
+    "NDK30.0.16248370 API29 Windows ARM64 cross-linker and llvm-strip",
+    "Selected Cargo.lock dependencies and pinned HTTPS git revisions; no credentials",
+    "Native source build prerequisites for openssl/ring/aws-lc/zstd/sqlite/tree-sitter/compression libraries; Perl/CMake/compiler availability must be checked on runner",
+    "40GiB free runner disk preflight; hosted standard runner only"
+  ],
+  "missingSourcePathsFromStaticCargoAndLiteralIncludeChecks": [],
+  "remainingUnknowns": [
+    "Actual runner tool availability and native build-script execution",
+    "Generated OUT_DIR data and non-literal paths",
+    "Clean dependency/Android compile and notice closure after that compile"
+  ],
+  "buildOrToolInstallExecuted": false,
+  "signingAndRelease": "No signer authorized; release job stays unreachable"
+}
