@@ -9,13 +9,13 @@ class FixturePrivacy(unittest.TestCase):
  def test_actual_rust_test_retains_both_synthetic_cases(self):
   text=(ROOT/'codex-rs/cli/src/doctor/output.rs').read_text();body=text.split('fn redact_detail_preserves_missing_env_diagnostics()',1)[1].split('\n    #[test]',1)[0]
   for prefix,name in [('AKIA','synthetic_access_key_id'),('ASIA','synthetic_temporary_access_key_id')]:
-   self.assertIn('format!("{}{}", "'+prefix+'", "TEST".repeat(4))',body)
-   self.assertIn('('+name+'.as_str(), "<redacted>")',body)
+   self.assertTrue('format!("{}{}", "'+prefix+'", "TEST".repeat(4))' in body, 'Required synthetic fixture coverage is missing')
+   self.assertTrue('('+name+'.as_str(), "<redacted>")' in body, 'Required synthetic fixture coverage is missing')
  def test_legacy_source_zip_has_no_temporary_identifier_literal(self):
   p=ROOT/'Vibetram-Alpha-1.91-Source.zip'
   if not p.exists():return
   with zipfile.ZipFile(p) as z:
    for item in z.infolist():
     self.assertLess(item.file_size,10485760)
-    if not item.is_dir():self.assertIsNone(re.search(rb'\bASIA[A-Z0-9]{16}\b',z.read(item)),'Legacy archive needs private review')
+    if not item.is_dir():self.assertFalse(bool(re.search(rb'\bASIA[A-Z0-9]{16}\b',z.read(item))),'Legacy archive needs private review')
 if __name__=='__main__':unittest.main()

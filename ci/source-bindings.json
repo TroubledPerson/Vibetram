@@ -233,7 +233,7 @@
   },
   {
     "path": "ci/test_fixture_privacy.py",
-    "sha256": "2e8f9d9506d41b55b7887fc2b6cda80253608a06ecb816e02c61e1694d25baae"
+    "sha256": "c8562e3e1c85e4837682da76da62cf3fa18e1fb029feca78808fa35c75c818e6"
   },
   {
     "path": "ci/test_lock_diagnostic.py",
