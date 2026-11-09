@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "ffc3a613b27c3ec72f45715128e596f287f052a3480129d734628f72250f8671"
+    "sha256": "63ce7fe76d3acf14dde665802b172d3a8b9f5b4da4f799cc88caccca595dc951"
   },
   {
     "path": "ASSET_EXCLUSIONS.json",
@@ -33,7 +33,7 @@
   },
   {
     "path": "CI_STATUS.md",
-    "sha256": "9b6b7e5b24e30afa5d493eca9cb9a5a19368f648003e23a16deab2c03971edb4"
+    "sha256": "0987f93b54f0f13473074ec75a157f9dd68ed3519b1d8028e40ba349ca981a8a"
   },
   {
     "path": "DEPENDENCIES.md",
@@ -173,7 +173,11 @@
   },
   {
     "path": "ci/msvc_env.py",
-    "sha256": "08c593ab89fab7db2db8d9d57e8f62ce743093a17ebf70bbfa3294687be51d5f"
+    "sha256": "7d9fee7bed14f045b514bd3c59c2390c03ccb021292a1342f997db78597b1982"
+  },
+  {
+    "path": "ci/msvc_pins.py",
+    "sha256": "0e3a3224e52d6c7d3fbf887eefc85097db2f300659d9f344efa831d89b83c348"
   },
   {
     "path": "ci/msvc_probe.py",
@@ -186,6 +190,10 @@
   {
     "path": "ci/publication-policy.json",
     "sha256": "23ade42e9f3e6e5837ae8dba45d19cbb563be38539f026e205c0a455cd9b6b3d"
+  },
+  {
+    "path": "ci/qualified-msvc.json",
+    "sha256": "84ffff745aac7f089fa66569e832f428afacba28559bb2cedb9c3e2365aaaf0b"
   },
   {
     "path": "ci/reparse_metadata.py",
@@ -214,6 +222,10 @@
   {
     "path": "ci/test_msvc_env.py",
     "sha256": "54b2b5ff666cbd4093653ea53ae24c8e9012949a0c6a59f6a429d29812cec932"
+  },
+  {
+    "path": "ci/test_msvc_pins.py",
+    "sha256": "aa2a85b6999f9f9a97a00350f3deaea8c4da988fba98093b1ca5dbc38d8e58fd"
   },
   {
     "path": "ci/test_provision_rust.py",

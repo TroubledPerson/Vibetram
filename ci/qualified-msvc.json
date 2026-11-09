@@ -1,0 +1,56 @@
+{
+  "qualifiedRun": "https://github.com/TroubledPerson/Vibetram/actions/runs/42654399508",
+  "qualifiedCommit": "79f26497cf04d1445d6563b870ef3226e8c38845",
+  "toolset": "14.51.36231",
+  "sdkVersion": "10.0.26100.0",
+  "setupSHA256": "a7815e85d636828e5cf70fe4235b11fcb41750896a4d2d60756b43bacaf4f0b2",
+  "rustVersion": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "tools": [
+    {
+      "name": "vswhere.exe",
+      "fileVersion": "3.1.7.39155",
+      "sha256": "c54f3b7c9164ea9a0db8641e81ecdda80c2664ef5a47c4191406f848cc07c662"
+    },
+    {
+      "name": "cl.exe",
+      "fileVersion": "19.51.36260.0",
+      "sha256": "b0a1818ebae6da7f18230a84e76ce839212584ac4c2ab55b97a0d5268085da57"
+    },
+    {
+      "name": "link.exe",
+      "fileVersion": "14.51.36260.0",
+      "sha256": "a8c42e25c91ca2453e1110540ac08f0fc12d7539454a11b9af8baeecb469837d"
+    },
+    {
+      "name": "lib.exe",
+      "fileVersion": "14.51.36260.0",
+      "sha256": "d8dae02a50c7571c6c0ea5cd7a853830aaca8fad13f8f4be147828d51dd4adec"
+    }
+  ],
+  "libraryInputs": [
+    {
+      "relative": "lib\\x64\\libcmt.lib",
+      "sha256": "d4cc4c224455825dec1669f9ad6a9872a4f5b37ed1daae1fd0b9044d7650d908"
+    },
+    {
+      "relative": "Lib\\10.0.26100.0\\um\\x64\\kernel32.lib",
+      "sha256": "842f5ce7ad8cf5aab7491b791e7968d2be510ae93f4019d3311797289399d221"
+    },
+    {
+      "relative": "Lib\\10.0.26100.0\\ucrt\\x64\\ucrt.lib",
+      "sha256": "7ef4eac926bf597d2f243f16cdfed7e0db22cb3ca34a1d7e088a84c994a03d66"
+    },
+    {
+      "relative": "include\\vcruntime.h",
+      "sha256": "8a6e89fe85c66162d62c772d02367ae2e6530f1faaaa8d099427698a689bac7f"
+    },
+    {
+      "relative": "Include\\10.0.26100.0\\ucrt\\stdio.h",
+      "sha256": "06cbab3a501306fdd9176a00a83e5bb92ea4d7863cfd666355743527cf99edc6"
+    },
+    {
+      "relative": "Include\\10.0.26100.0\\um\\Windows.h",
+      "sha256": "b337d661d03a4abefb7b86a2742ce1ad5d19b57cd8b858bd13e7bbcc1dbeeaaa"
+    }
+  ]
+}

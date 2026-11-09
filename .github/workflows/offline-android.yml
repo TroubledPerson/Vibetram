@@ -67,6 +67,9 @@
         },
         {
           "run": "python -B ci/test_alias_accounting.py"
+        },
+        {
+          "run": "python -B ci/test_msvc_pins.py"
         }
       ]
     },

@@ -1,5 +1,6 @@
 """Qualify installed Microsoft x64 tools in a sanitized job-local environment."""
 import pathlib,os,re,json,hashlib,shutil,struct,time
+from msvc_pins import read_pins,tool_pins,rust_pin
 EXPORTS=('PATH','INCLUDE','LIB','LIBPATH','VCToolsInstallDir','VCToolsVersion','VCINSTALLDIR','VSINSTALLDIR','WindowsSdkDir','WindowsSDKVersion','UniversalCRTSdkDir','UCRTVersion','VSCMD_ARG_TGT_ARCH','VSCMD_ARG_HOST_ARCH','WindowsSdkBinPath','WindowsSdkVerBinPath','WindowsLibPath')
 def parse_exports(text):
  allowed={k.lower():k for k in EXPORTS};out={}
@@ -68,6 +69,8 @@ def qualify_msvc(base,work,guard):
   required=required_inputs(tools,sdk,sdkversion)
   out.update(installation=raw,toolset=exported['VCToolsVersion'],sdkVersion=sdkversion,explicitLinker=str(link),requiredInputs=[{'relative':str(p.relative_to(tools if p.is_relative_to(tools) else sdk)),'present':p.is_file()} for p in required])
   assert all(p.is_file() for p in required),'MSVC_OR_WINDOWS_SDK_INPUT_MISSING'
+  pins=read_pins();out.update(setupSHA256=hashlib.sha256(setup.read_bytes()).hexdigest(),libraryInputs=[{'relative':str(p.relative_to(tools if p.is_relative_to(tools) else sdk)),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in required])
+  tool_pins(pins,out);out['qualifiedToolPinsVerified']=True
   env=apply_exports(base,exported,link,cl,lib)
   assert pathlib.Path(shutil.which('link.exe',path=env['PATH']) or '').resolve()==link.resolve(),'PATH_STILL_RESOLVES_NON_MSVC_LINKER'
   libraries=library_directories(env['LIB']);out['libraryDirectories']=[str(p) for p in libraries]
@@ -76,7 +79,7 @@ def qualify_msvc(base,work,guard):
   c=work/'tiny-sdk.c';c.write_text('#include <windows.h>\nint main(void) { return GetCurrentProcessId() == 0; }\n',encoding='utf-8');cexe=work/'tiny-sdk.exe'
   run([cl,'/nologo','/WX','/W4','/MT',str(c),'/Fo'+str(work/'tiny-sdk.obj'),'/Fe'+str(cexe)],env,timeout=60);pe_x64(cexe.read_bytes());out['compiledTinyFixtures']=1
   rust=work/'tiny-msvc.rs';rust.write_text('fn main() {}\n',encoding='utf-8');rexe=work/'tiny-msvc.exe'
-  version=run(['rustc','--version'],env,timeout=30).stdout.strip();assert version.startswith('rustc 1.95.0 '),'PINNED_RUST_REQUIRED_FOR_LINK_PROBE'
+  version=run(['rustc','--version'],env,timeout=30).stdout.strip();rust_pin(pins,version)
   run(['rustc','--edition','2024','--target','x86_64-pc-windows-msvc','-C','linker='+str(link),str(rust),'-o',str(rexe)],env,timeout=60);pe_x64(rexe.read_bytes());out['compiledTinyFixtures']=2
   assert time.monotonic()-begin<180,'TINY_MSVC_QUALIFICATION_DEADLINE'
   out.update(state='PASS_INSTALLED_MSVC_X64_AND_WINDOWS_SDK',installation=raw,setupSHA256=hashlib.sha256(setup.read_bytes()).hexdigest(),toolset=exported['VCToolsVersion'],sdkVersion=sdkversion,explicitLinker=str(link),rustVersion=version,libraryInputs=[{'relative':str(p.relative_to(tools if p.is_relative_to(tools) else sdk)),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in required],fixtures=[{'name':p.name,'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in (cexe,rexe)])

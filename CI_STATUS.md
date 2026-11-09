@@ -101,3 +101,11 @@ Physical metadata probe42651622182 verified the independently named IE directory
 Alias and target identities/raw record are pinned within each job and checked before/after scans. A newly appearing alias requires a fresh leased snapshot; an already qualified alias disappearing/replacing, any metadata/access/sharing ambiguity, root overlap, unknown link, target file snapshot race or inaccessible walk is fatal. Fatal accounting errors latch, preventing automatic retries in finalizers. Existing40GiB floor,64GiB monitored output, deadlines, CPU limits, dependency pins and five exact licence links remain unchanged.
 
 One tiny-only compiler/link probe follows synthetic policy/count tests. No full Cargo/native-app compile, signing, Release or security-alert investigation is included; unresolved publication concerns remain a release blocker.
+
+## Tiny qualification passed; one unsigned full-build trial
+
+Run42654399508 at79f2649 passed the real tiny C/Windows-SDK and Rust1.95 x64 compile/link checks in32.641seconds. Both PE files were validated and neither executed. The actual guarded scan qualified the exact alias, charged32KiB metadata and pruned it, with a distinct regular same-volume target and12 verified ancestors. All146 preparation tests passed.
+
+The next full trial calls the same Guard and qualify_msvc implementation; no duplicate accounting/controller path is introduced. Fresh VM provisioning, locked metadata with zero lock delta, fresh strict preflight and tiny link qualification remain required. Public qualified-msvc.json pins the passing Microsoft toolset/SDK, executable versions and SHA256s, setup script and six SDK/VC inputs; changes fail before application Cargo compilation. Exact Rust build identity is checked as well.
+
+This trusted dual-marked push authorizes one existing bounded unsigned full build only:40GiB free floor,64GiB monitored retained-output threshold,104GiB initial headroom, two workers and90-minute process deadline remain unchanged. Signing, Release and security-alert inspection remain disabled/out of scope; pending separate security review still bars release. Cloud native/Android/package success and phone testing are not inferred from the tiny probe.
