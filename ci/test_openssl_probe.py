@@ -1,5 +1,5 @@
-import unittest,tarfile,pathlib
-from openssl_probe import safe_member,validate_members,configure_args,PREFIX,CHECKSUM,probe_layout
+import unittest,tarfile,pathlib,os
+from openssl_probe import safe_member,validate_members,configure_args,PREFIX,CHECKSUM,probe_layout,probe_environment
 class ProbePolicy(unittest.TestCase):
  def member(self,name,size=1,kind=tarfile.REGTYPE):
   x=tarfile.TarInfo(name);x.size=size;x.type=kind;return x
@@ -35,6 +35,13 @@ class ProbePolicy(unittest.TestCase):
   self.assertEqual(args[:3],["./Configure","--prefix=D:/owned/install","--openssldir=/usr/local/ssl"])
   self.assertIn("linux-aarch64",args);self.assertIn("--target=aarch64-linux-android29",args)
   self.assertNotIn("no-asm",args);self.assertNotIn("no-ssl",args)
+ @unittest.skipUnless(os.name=="nt","Windows environment semantics")
+ def test_environment(self):
+  roots=probe_layout(pathlib.Path.cwd());env=probe_environment(roots[0],roots[2],roots[3])
+  self.assertEqual(env["SystemRoot"],os.environ["SystemRoot"])
+  self.assertEqual(env["WINDIR"],os.environ["WINDIR"])
+  self.assertEqual(env["CARGO_HOME"],str(roots[2]));self.assertEqual(env["RUSTUP_HOME"],str(roots[3]))
+  self.assertNotIn("GITHUB_TOKEN",env);self.assertNotIn("ACTIONS_RUNTIME_TOKEN",env)
  def test_layout(self):
   roots=probe_layout(pathlib.Path.cwd())
   self.assertEqual(len(set(roots)),4)
