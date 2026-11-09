@@ -13,9 +13,12 @@ The source/host-test checkpoint is complete; the Android APK, owner-phone testin
 - Tested cancellation during enrollment, queued completion rejection, expiry, strict schemas, metadata persistence and child/reader cleanup.
 - Final host results: 86 native test executions and 44 Java/native checks. These overlap functionality and do not establish live or Android compatibility.
 
+### Published
+
+- Published the reviewed source snapshot as `Vibetram-Alpha-1.91-Source.zip` with licence, required notices and documentation in commit `fa3bafbb29fee843410513b24cafd73cc51453e0`. Public upstream provenance and required notices are verified, and Apache-2.0 for original Vibetram code is approved. This source publication is not an Android APK release.
+
 ### Pending
 
-- Publication of the reviewed source snapshot. Public upstream provenance and required notices are verified, and Apache-2.0 for original Vibetram code is approved.
 - Android native rebuild from final 1.91 source, Android-safe Activity/process adapter and explicit Stop/focus-loss controls; normal and canceled/expired runs on a phone.
 - Compile/manifest/permission, payload identity, uncompressed aligned resources.arsc, native alignment, ZIP integrity and existing-certificate signature verification.
 - Actual GitHub release asset upload and remote hash/size verification.
