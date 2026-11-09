@@ -58,6 +58,9 @@
         },
         {
           "run": "python -B ci/test_lock_repair.py"
+        },
+        {
+          "run": "python -B ci/test_msvc_env.py"
         }
       ]
     },
@@ -107,7 +110,7 @@
           "if": "always()",
           "with": {
             "name": "unsigned-audit-${{ github.sha }}",
-            "path": "preflight-output/*.json\nprovision-output/*.json\nci-work/failure-summary.json\nci-work/compiled-dependency-notice-check.json\nci-work/trial-progress.json",
+            "path": "preflight-output/*.json\nprovision-output/*.json\nci-work/failure-summary.json\nci-work/compiled-dependency-notice-check.json\nci-work/trial-progress.json\nci-work/msvc-qualification.json",
             "if-no-files-found": "warn",
             "retention-days": 3
           }

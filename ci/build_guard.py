@@ -94,7 +94,7 @@ class Guard:
   return elapsed,used
  def report(self):
   return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'snapshotDisappearanceRaces':self.races,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'commands':self.commands,'signed':False,'releasable':False}
- def run(self,args,cwd=None,env=None,capture=False):
+ def run(self,args,cwd=None,env=None,capture=False,timeout=None):
   self.check();self.count+=1;index=self.count;label=pathlib.Path(str(args[0])).name
   stdout=self.work/f'command-{index:02d}.stdout.log';stderr=self.work/f'command-{index:02d}.stderr.log'
   print(f'TRIAL_STAGE {index} {label}',flush=True);proc=None;started=time.monotonic();last=started;code=None
@@ -102,6 +102,7 @@ class Guard:
    with stdout.open('xb') as a,stderr.open('xb') as b:
     proc=subprocess.Popen([str(x) for x in args],cwd=cwd or self.root,env=env or self.env,stdout=a,stderr=b)
     while True:
+     assert timeout is None or time.monotonic()-started<=timeout,'COMMAND_DEADLINE'
      elapsed,used=self.check(stdout.stat().st_size+stderr.stat().st_size)
      if proc.poll() is not None:break
      if time.monotonic()-last>=30:

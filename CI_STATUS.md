@@ -55,3 +55,13 @@ No-compile run42640665926 succeeded on exact Rust1.95.0. Its disposable proposal
 The same run audited all seven pinned Git trees. The only five licence links were nucleo matcher/LICENSE and h3's h3, h3-datagram, h3-quinn, h3-webtransport LICENSE links, all ../LICENSE. h3's regular root licence is1054bytes, Git blob97d180d899ac03e8db023a2aec14f3d223e7df39 at locked commite07e69412876f7e26f026bd75a48b2704d8c8283. Their unchanged text, exact target and tracked identities are now covered by the same fail-closed monitor rules; every unknown link remains fatal.
 
 One dual-marked repair trial first requires a fresh no-compile locked metadata success and an offline workspace update producing zero lock delta on its own VM. Only after that diagnostic succeeds can the separate unsigned build job start, with its own fresh toolchain/preflight and all existing guards. Source-policy tests include the exact reviewed lock and external-entry fingerprint. No signed output or public Release is enabled; no phone success is claimed.
+
+## Installed Microsoft x64 linker qualification
+
+The reviewed lock/link trial42642356032 passed locked metadata with zero delta and all five exact licence links, then stopped at the first host dependency build scripts: link.exe returned GNU-style extra-operand errors for MSVC arguments. No native test binary or APK completed.
+
+The next single bounded trial uses Microsoft's installed vswhere and VsDevCmd.bat -arch=x64 -host_arch=x64. It verifies Microsoft Authenticode/company/version/SHA256 for vswhere, cl, link and lib, exact Hostx64/x64 paths, the discovered VC/SDK libraries and headers, and resolved link.exe. Only selected developer environment fields enter the sanitized child process; no machine/global settings change. Rust's Windows host linker and C/C++ tools are explicit, while the pinned Android NDK selection is retained.
+
+Before Cargo compilation, tiny C/Windows-SDK and exact-Rust1.95 x64 programs must compile/link and validate as PE x64. These test executables are not run. Each command has a bounded deadline and the qualification has a180-second checked budget under the existing disk/output monitor. Failure preserves a small msvc-qualification report and stops before the full build. Only if it passes does the existing unsigned trial continue. No tool installation, dependency/version change, signing or Release is added.
+
+Official setup references: https://github.com/microsoft/vswhere/wiki/Find-VC and https://learn.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=msvc-170

@@ -1,6 +1,7 @@
 """One monitored unsigned hosted build; no signing, release or device execution."""
 import os,pathlib,subprocess,json,hashlib,shutil,re,zipfile,struct,tomllib
 from check_source import source_check
+from msvc_env import qualify_msvc
 from build_guard import Guard,clean_env,android_env,artifact,test_count,MAX_OUTPUT,MIN_FREE
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 WORK=ROOT/'ci-work';OUT=ROOT/'dist';GUARD=None;ENV=None
@@ -52,7 +53,8 @@ def main():
  WORK.mkdir();OUT.mkdir()
  for path in ('tmp','home','profile','profile/AppData/Roaming','profile/AppData/Local','host-fixtures/tmp','host-fixtures/profile'): (WORK/path).mkdir(parents=True,exist_ok=True)
  ENV=clean_env(os.environ,WORK);GUARD=Guard(ROOT,WORK,OUT,ENV)
- versions={}
+ ENV,msvc=qualify_msvc(ENV,WORK,GUARD);GUARD.env=ENV
+ versions={'qualifiedMsvc':msvc}
  for name,args in [('rustc',['rustc','--version']),('ndkClang',[ndk/'clang.exe','--version']),('ndkArchiver',[ndk/'llvm-ar.exe','--version']),('javac',[java/'javac.exe','-version'])]:
   version_result=run(args,env=ENV,cwd=ROOT/'codex-rs',capture=True);versions[name]=(version_result.stdout or version_result.stderr or '').strip()
  assert versions['rustc'].startswith('rustc 1.95.0 '),'WRONG_RUST_VERSION'
