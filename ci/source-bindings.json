@@ -33,7 +33,7 @@
   },
   {
     "path": "CI_STATUS.md",
-    "sha256": "98fd51aaf4bf1193bead5b5d38f10935a908673d0a1c16a44c66f8642d7c1cba"
+    "sha256": "7f9df26af2234e5910ef590c69fa86bf36bf091eb9d31602801ac8285600c84f"
   },
   {
     "path": "DEPENDENCIES.md",
@@ -169,7 +169,7 @@
   },
   {
     "path": "ci/msvc_env.py",
-    "sha256": "18a4fcbea1155e4da15fab0fbcbb72b2c5161d75f0b2f3e3e1c5152ab7fad97b"
+    "sha256": "c772b7623a6a37d866041e30e35a84c5712cbad50461188a66f415bf36f853dd"
   },
   {
     "path": "ci/msvc_probe.py",
@@ -201,7 +201,7 @@
   },
   {
     "path": "ci/test_msvc_env.py",
-    "sha256": "bb036866eba4a6b0984de776a1710a81bab508eee0bf1a6df545a920c7221c3b"
+    "sha256": "dcf5c4442d35822571290d8ed6999e075ef57082056674e048aa0fab63370c82"
   },
   {
     "path": "ci/test_provision_rust.py",

@@ -6,7 +6,9 @@ def parse_exports(text):
  for line in text.splitlines():
   key,sep,value=line.partition('=')
   if sep and key.lower() in allowed:
-   normalized=allowed[key.lower()];assert normalized not in out,'DUPLICATE_VC_ENVIRONMENT_KEY';assert '\x00' not in value;out[normalized]=value
+   normalized=allowed[key.lower()];assert '\x00' not in value
+   if normalized in out:assert out[normalized]==value,'CONFLICTING_VC_ENVIRONMENT_KEY'
+   else:out[normalized]=value
  for key in ('PATH','INCLUDE','LIB','LIBPATH','VCToolsInstallDir','VCToolsVersion','WindowsSdkDir','WindowsSDKVersion','VSCMD_ARG_TGT_ARCH','VSCMD_ARG_HOST_ARCH'):assert out.get(key),'MISSING_VC_ENVIRONMENT_'+key
  assert out['VSCMD_ARG_TGT_ARCH']=='x64' and out['VSCMD_ARG_HOST_ARCH']=='x64','MSVC_X64_HOST_AND_TARGET_REQUIRED'
  return out

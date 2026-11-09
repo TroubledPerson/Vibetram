@@ -37,4 +37,6 @@ class MsvcPolicy(unittest.TestCase):
   self.assertEqual(base,{'PATH':'tools'});self.assertNotIn('GITHUB_TOKEN',env);self.assertEqual(set(env),{'PATH','ProgramData','ALLUSERSPROFILE'})
  def test_unexpected_discovery_location_rejected(self):
   with self.assertRaises(AssertionError):discovery_env({}, {'ProgramData':r'D:\unexpected','ALLUSERSPROFILE':r'C:\ProgramData'})
+ def test_identical_prefix_export_repeats_are_idempotent(self):
+  self.assertEqual(parse_exports(self.text(self.good())+'\nLIBPATH=libs\nPath=official;git'),self.good())
 if __name__=='__main__':unittest.main()
