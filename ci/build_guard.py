@@ -6,9 +6,18 @@ MAX_SECONDS=5400
 MAX_LOG=64*1024**2
 NUCLEO_COMMIT='4253de9faabb4e5c6d81d946a5e35a90f87347ee'
 NUCLEO_LICENSE_BLOB='a612ad9813b006ce81d1ee438dd784da99a54007'
-def qualified_license_link(relative,target,license_blob):
+H3_COMMIT='e07e69412876f7e26f026bd75a48b2704d8c8283'
+H3_LICENSE_BLOB='97d180d899ac03e8db023a2aec14f3d223e7df39'
+LICENSE_RULES=[('nucleo',NUCLEO_COMMIT,('matcher','LICENSE'),NUCLEO_LICENSE_BLOB,16725)]+[('h3',H3_COMMIT,(name,'LICENSE'),H3_LICENSE_BLOB,1054) for name in ('h3','h3-datagram','h3-quinn','h3-webtransport')]
+def license_rule(relative,target):
  parts=pathlib.PurePosixPath(relative.replace(chr(92),'/')).parts
- return (len(parts)==6 and parts[:2]==('git','checkouts') and re.fullmatch(r'nucleo-[0-9a-f]+',parts[2]) is not None and len(parts[3])>=7 and NUCLEO_COMMIT.startswith(parts[3]) and parts[4:]==('matcher','LICENSE') and target.replace(chr(92),'/')=='../LICENSE' and license_blob==NUCLEO_LICENSE_BLOB)
+ if len(parts)!=6 or parts[:2]!=('git','checkouts') or target.replace(chr(92),'/')!='../LICENSE':return None
+ matches=[r for r in LICENSE_RULES if re.fullmatch(re.escape(r[0])+'-[0-9a-f]+',parts[2]) and len(parts[3])>=7 and r[1].startswith(parts[3]) and parts[4:]==r[2]]
+ return matches[0] if len(matches)==1 else None
+def qualified_license_link(relative,target,license_blob):
+ rule=license_rule(relative,target)
+ return rule is not None and license_blob==rule[3]
+
 def git_blob_identity(data):
  return hashlib.sha1(b'blob '+str(len(data)).encode()+bytes([0])+data).hexdigest()
 def normalized_license_blob(data):
@@ -65,13 +74,13 @@ class Guard:
      try:
       if p.is_symlink():
        cargo=pathlib.Path(self.env['CARGO_HOME']);relative=p.relative_to(cargo).as_posix();target=os.readlink(p)
-       assert qualified_license_link(relative,target,NUCLEO_LICENSE_BLOB),'UNQUALIFIED_OUTPUT_FILE_LINK:'+relative
+       rule=license_rule(relative,target);assert rule is not None,'UNQUALIFIED_OUTPUT_FILE_LINK:'+relative
        sibling=p.parent.parent/'LICENSE';assert sibling.is_file() and not sibling.is_symlink(),'PINNED_LICENSE_TARGET_NOT_REGULAR'
        for ancestor in sibling.parents:
         assert not ancestor.is_symlink() and not ancestor.is_junction(),'PINNED_LICENSE_ANCESTOR_LINK'
         if ancestor==cargo:break
        assert sibling.stat().st_size<=32768,'PINNED_LICENSE_SIZE_LIMIT'
-       data=sibling.read_bytes();assert len(data.replace(bytes([13,10]),bytes([10])))==16725,'PINNED_LICENSE_SIZE_CHANGED';blob=normalized_license_blob(data)
+       data=sibling.read_bytes();assert len(data.replace(bytes([13,10]),bytes([10])))==rule[4],'PINNED_LICENSE_SIZE_CHANGED';blob=normalized_license_blob(data)
        assert qualified_license_link(relative,target,blob),'PINNED_LICENSE_IDENTITY_CHANGED'
        total+=max(4096,p.lstat().st_size)
        self.qualified_links.add(relative)

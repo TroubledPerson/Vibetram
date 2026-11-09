@@ -109,10 +109,12 @@ def main():
   result['lockedMetadataExit']=code;result['lockedMetadataNeedsLockUpdate']=b'lock' in stderr.lower() and b'--locked' in stderr
   if code and not result['lockedMetadataNeedsLockUpdate']:
    result['lockedMetadataError']=stderr.decode('utf-8',errors='replace')[-8000:];raise AssertionError('LOCKED_METADATA_OTHER_FAILURE')
+  if '[unsigned-trial-191]' in event['head_commit']['message']:assert code==0,'REPAIRED_LOCKED_METADATA_MUST_PASS_BEFORE_BUILD'
   proposal_code,proposal_out,proposal_err=d.run(['cargo','update','--workspace','--offline'],cwd=copy,expected_failure=True);result['proposalExit']=proposal_code
   result['proposalDiagnostic']=proposal_err.decode('utf-8',errors='replace')[-16000:]
   proposed=(copy/'Cargo.lock').read_bytes();after=tomllib.loads(proposed.decode('utf-8'));delta=lock_delta(old,after);result['proposedDelta']=delta
   result['proposalLockSHA256']=hashlib.sha256(proposed).hexdigest();result['proposedLockChanged']=proposed!=original
+  if '[unsigned-trial-191]' in event['head_commit']['message']:assert proposal_code==0 and proposed==original,'REPAIRED_LOCK_MUST_REMAIN_IDENTICAL'
   if proposed!=original:
    (OUT/'Cargo.lock.PROPOSED_NOT_ADOPTED').write_bytes(proposed)
    (OUT/'Cargo.lock.delta.txt').write_text(''.join(difflib.unified_diff(original.decode().splitlines(True),proposed.decode().splitlines(True),fromfile='committed/Cargo.lock',tofile='disposable-proposal/Cargo.lock')),encoding='utf-8')

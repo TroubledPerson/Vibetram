@@ -55,12 +55,18 @@
         },
         {
           "run": "python -B ci/test_lock_diagnostic.py"
+        },
+        {
+          "run": "python -B ci/test_lock_repair.py"
         }
       ]
     },
     "unsigned-qualification": {
       "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[unsigned-trial-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
-      "needs": "source-checks",
+      "needs": [
+        "source-checks",
+        "lock-diagnostic"
+      ],
       "runs-on": "windows-latest",
       "timeout-minutes": 120,
       "permissions": {

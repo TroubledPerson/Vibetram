@@ -1,5 +1,5 @@
 import unittest,pathlib,json,struct
-from build_guard import qualified_license_link,NUCLEO_LICENSE_BLOB,git_blob_identity,normalized_license_blob
+from build_guard import qualified_license_link,NUCLEO_LICENSE_BLOB,H3_LICENSE_BLOB,LICENSE_RULES,license_rule,git_blob_identity,normalized_license_blob
 from build_guard import limits,MIN_FREE,MAX_OUTPUT,MAX_SECONDS,MAX_LOG,android_env,clean_env,artifact,test_count,redact
 from cloud_build import elf_check
 class BuildPolicy(unittest.TestCase):
@@ -39,5 +39,16 @@ class BuildPolicy(unittest.TestCase):
  def test_license_line_endings_only(self):self.assertEqual(normalized_license_blob(b'hello'+bytes([13,10])),normalized_license_blob(b'hello'+bytes([10])));self.assertNotEqual(normalized_license_blob(b'hello '),normalized_license_blob(b'hello'))
  def test_license_non_utf8_rejected(self):
   with self.assertRaises(UnicodeDecodeError):normalized_license_blob(bytes([255]))
+ def test_all_five_exact_license_rules(self):
+  self.assertEqual(len(LICENSE_RULES),5)
+  for repo,commit,path,identity,size in LICENSE_RULES:
+   relative='/'.join(('git','checkouts',repo+'-a123',commit[:7],*path))
+   self.assertTrue(qualified_license_link(relative,'../LICENSE',identity))
+   self.assertEqual(license_rule(relative,'../LICENSE')[4],size)
+ def test_h3_unknown_subpackage_denied(self):self.assertFalse(qualified_license_link('git/checkouts/h3-a123/e07e694/unknown/LICENSE','../LICENSE',H3_LICENSE_BLOB))
+ def test_h3_wrong_commit_denied(self):self.assertFalse(qualified_license_link('git/checkouts/h3-a123/deadbee/h3/LICENSE','../LICENSE',H3_LICENSE_BLOB))
+ def test_cross_repository_blob_denied(self):self.assertFalse(qualified_license_link('git/checkouts/h3-a123/e07e694/h3/LICENSE','../LICENSE',NUCLEO_LICENSE_BLOB))
+ def test_h3_wrong_target_denied(self):self.assertIsNone(license_rule('git/checkouts/h3-a123/e07e694/h3/LICENSE','../../LICENSE'))
+ def test_h3_nonlicense_link_denied(self):self.assertIsNone(license_rule('git/checkouts/h3-a123/e07e694/h3/code','../LICENSE'))
 if __name__=='__main__':unittest.main()
 
