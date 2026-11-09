@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "a0d35c77a7c531ee9c53f958c48af2c19b97111a1024b919a95b437f52248959"
+    "sha256": "829fd15be5bde39cf8d3ff7b87bc3436ae9f6f8d70cd0c13bd524bbc0bfa3d1e"
   },
   {
     "path": "ASSET_EXCLUSIONS.json",
@@ -33,7 +33,7 @@
   },
   {
     "path": "CI_STATUS.md",
-    "sha256": "4244ab384997539922ee93ca18703ba5bbc8d7ceed4ebc5049226ce042a460d8"
+    "sha256": "0a6e70f30b11ebd6ef7abab80082de83f520b2daff0ac53554f549868fa16bb3"
   },
   {
     "path": "DEPENDENCIES.md",
@@ -162,6 +162,14 @@
   {
     "path": "ci/publication-policy.json",
     "sha256": "23ade42e9f3e6e5837ae8dba45d19cbb563be38539f026e205c0a455cd9b6b3d"
+  },
+  {
+    "path": "ci/runner_preflight.py",
+    "sha256": "67b6f4c7208101e3bb5c98d34af560e399f04b5f1059a600945fb41a21c1491e"
+  },
+  {
+    "path": "ci/test_runner_preflight.py",
+    "sha256": "69a757c37ca47393d27e2a3a7f09faed31cac18b0e532e9f45c008ae9a98d8f6"
   },
   {
     "path": "ci/test_source_policy.py",

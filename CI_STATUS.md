@@ -11,3 +11,7 @@ The local genuine 1.91 APK has its recorded host/package checks, but new 1.91 ph
 CI signing is not authorized. The release job stays explicitly disabled. Future build output must be labelled unsigned until an approved signer is used, and future release source.zip must come from the exact APK build commit. The old repository ZIP is historical evidence, not the new build input. No new source ZIP or APK release was published in this stage.
 
 Publication used the already authenticated GitHub Desktop session. The separate connector's write denial remains binding, and no credential or TLS workaround was used. Source-check success does not establish native build reproducibility or live ChatGPT compatibility.
+
+## Read-only hosted preflight implemented
+
+A standard-free Windows runner now inventories disk/RAM, exact installed toolchains and required paths after source checks. It performs no installs, native compilation, cleanup or signing. Its JSON artifact/summary explicitly reports qualification separately from successful inventory execution. The existing40GiB guard and pinned versions are unchanged; native qualification also requires the preflight output to be true and an explicit manual compile request. The first exact preflight result is pending this commit's hosted run.

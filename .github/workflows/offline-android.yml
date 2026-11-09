@@ -43,12 +43,18 @@
         },
         {
           "run": "python -B ci/check_source.py"
+        },
+        {
+          "run": "python -B ci/test_runner_preflight.py"
         }
       ]
     },
     "unsigned-qualification": {
-      "if": "github.event_name == 'workflow_dispatch' && inputs.compile_native && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
-      "needs": "source-checks",
+      "if": "github.event_name == 'workflow_dispatch' && inputs.compile_native && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram' && needs.runner-preflight.outputs.qualified == 'true'",
+      "needs": [
+        "source-checks",
+        "runner-preflight"
+      ],
       "runs-on": "windows-latest",
       "timeout-minutes": 120,
       "permissions": {
@@ -85,6 +91,39 @@
       "steps": [
         {
           "run": "throw 'CI signing and signed-release policy have not been approved; no release created'"
+        }
+      ]
+    },
+    "runner-preflight": {
+      "if": "github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "needs": "source-checks",
+      "runs-on": "windows-latest",
+      "timeout-minutes": 5,
+      "permissions": {
+        "contents": "read"
+      },
+      "outputs": {
+        "qualified": "${{ steps.inspect.outputs.qualified }}"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "id": "inspect",
+          "run": "python -B ci/runner_preflight.py"
+        },
+        {
+          "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
+          "with": {
+            "name": "runner-preflight-${{ github.sha }}",
+            "path": "preflight-output/runner-preflight.json",
+            "if-no-files-found": "error",
+            "retention-days": 3
+          }
         }
       ]
     }
