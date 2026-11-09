@@ -15,7 +15,7 @@ The runtime uses synthetic process-only sign-in, fake enrollment and memory tran
 
 Source is expanded as ordinary files: `android/`, `codex-rs/`, and `ci/`. See [CI_STATUS.md](CI_STATUS.md), [SOURCE_PROVENANCE.md](SOURCE_PROVENANCE.md), [LICENSING.md](LICENSING.md), and [GENERATED_INPUTS_REVIEW.json](GENERATED_INPUTS_REVIEW.json).
 
-Push/PR checks validate source bindings and offline manifest policy with read-only permissions. Native/unsigned Android qualification is a separate manual trusted-main action and has **not run on a clean hosted runner**. Exact Rust, SDK, NDK, JDK, native build prerequisites and generated inputs still require qualification. The release job remains disabled pending an authorized signing and signed-artifact policy. Private signing material is not included.
+Push/PR checks validate source bindings and offline manifest policy with read-only permissions. Native/unsigned Android qualification is a guarded trusted-main trial; its actual results are tracked in CI_STATUS.md and workflow artifacts, separate from source checks. Exact Rust, SDK, NDK, JDK, native build prerequisites and generated inputs still require qualification. The release job remains disabled pending an authorized signing and signed-artifact policy. Private signing material is not included.
 
 The intended first public APK is `Vibetram-Alpha-1.91-Android.apk`. A genuine local artifact exists, but no GitHub Release has been published. The old repository ZIP is retained only as historical source evidence; it is not the current expanded tree or a complete build. Future release `source.zip` must come from the exact APK build commit, not this historical ZIP. Earlier APKs will not be relabelled as 1.91.
 

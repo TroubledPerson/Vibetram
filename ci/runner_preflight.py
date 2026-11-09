@@ -69,4 +69,5 @@ def main():
  summary=os.environ.get('GITHUB_STEP_SUMMARY')
  if summary:
   with open(summary,'a',encoding='utf-8') as f:f.write('## Read-only runner preflight\n\nQualified: **'+str(result['qualified'])+'**. This is not a build.\n\nWorkspace free bytes: '+str(disks['workspace']['freeBytes'])+'; required: '+str(MIN_FREE)+'.\n\nReasons: '+(', '.join(result['reasons']) or 'none')+'.\n')
+ if '--require-qualified' in sys.argv:assert result['qualified'],'BUILD_VM_PREREQUISITES_NOT_QUALIFIED'
 if __name__=='__main__':main()

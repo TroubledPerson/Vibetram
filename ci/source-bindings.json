@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "2bf5b0c0d2245cf9c64d8e4e7287232bc5b6bbe2d8787059c625295465fea8f1"
+    "sha256": "b00183345f23e8169a52b44079511bcd858d50d66ab506ac1629cddff1ea1583"
   },
   {
     "path": "ASSET_EXCLUSIONS.json",
@@ -33,7 +33,7 @@
   },
   {
     "path": "CI_STATUS.md",
-    "sha256": "a8c0f7be8ad50c9ce1efdb249300fbc7a48db62823181b1b05d5f381f12d49dd"
+    "sha256": "d5c055f0f19e54626f7e343a6a5496d293d0579ee4d9600533e620eb3e96eb1e"
   },
   {
     "path": "DEPENDENCIES.md",
@@ -61,7 +61,7 @@
   },
   {
     "path": "README.md",
-    "sha256": "943ddf4d8b02f8e2b016d2b1c68ac15422c3c68fe48a8423739878cb54f96920"
+    "sha256": "60b3e9743024e40a348c6dc0ae76c8b6b7e7418c2d4f2853753ac8dc1ede1684"
   },
   {
     "path": "SOURCE_ID_MATERIAL.json",
@@ -152,16 +152,20 @@
     "sha256": "e5f2dbb7e96a86fbba6544cf36f47eea5c04ac1319c1813fc81cf33eee63bf63"
   },
   {
+    "path": "ci/build_guard.py",
+    "sha256": "5e3d54978f6418cd4b84b66bffbca8e1173dd34817d5ddea5157f29b6d4dc83e"
+  },
+  {
     "path": "ci/check_source.py",
     "sha256": "42e1f9d0f0e79776ba1d9ab88bd9b06d6f9945a2a6c43255c1ef101442a9f399"
   },
   {
     "path": "ci/cloud_build.py",
-    "sha256": "a1652f8557bd0e9253af0b3b1d68da1b7f27f25965cd2ba1639797a40c2eac77"
+    "sha256": "c3490bd0fe798a18737880ea866c4ebfba866a1e53b84b272d78b2c93532ea8d"
   },
   {
     "path": "ci/provision_rust.py",
-    "sha256": "09e2192dd233eacbe7a8745ad601a2e095f3f8a7f2e176abac65498bbf637b1d"
+    "sha256": "f3ea9f5de3a658e9b1cf14887efe2d9c05b6bed81858ebfe82cfa747db25741c"
   },
   {
     "path": "ci/publication-policy.json",
@@ -169,7 +173,11 @@
   },
   {
     "path": "ci/runner_preflight.py",
-    "sha256": "011beaf048d458db9f1892e80dfa6cf3cb6b8ec7eee57a3c548648e0b8e7717d"
+    "sha256": "e60e3e9e2c8a7d841e5fc60ee59e0fe81a2e1d2f88cb3d3ec6c87b3312b7270e"
+  },
+  {
+    "path": "ci/test_build_guard.py",
+    "sha256": "3b8103f921bf4881f38bc34eaaeab91c91a643af008134c829962601cabfbe3e"
   },
   {
     "path": "ci/test_provision_rust.py",

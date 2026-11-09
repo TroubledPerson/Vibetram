@@ -49,15 +49,15 @@
         },
         {
           "run": "python -B ci/test_provision_rust.py"
+        },
+        {
+          "run": "python -B ci/test_build_guard.py"
         }
       ]
     },
     "unsigned-qualification": {
-      "if": "${{ false }}",
-      "needs": [
-        "source-checks",
-        "runner-preflight"
-      ],
+      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[unsigned-trial-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "needs": "source-checks",
       "runs-on": "windows-latest",
       "timeout-minutes": 120,
       "permissions": {
@@ -71,6 +71,17 @@
           }
         },
         {
+          "name": "Provision exact Rust in this build VM",
+          "timeout-minutes": 12,
+          "run": "python -B ci/provision_rust.py"
+        },
+        {
+          "name": "Require this build VM prerequisites",
+          "run": "python -B ci/runner_preflight.py --require-qualified"
+        },
+        {
+          "name": "Bounded unsigned clean build and offline checks",
+          "timeout-minutes": 95,
           "run": "python -B ci/cloud_build.py"
         },
         {
@@ -79,6 +90,16 @@
             "name": "offline-unsigned-${{ github.sha }}",
             "path": "dist/*",
             "if-no-files-found": "error",
+            "retention-days": 3
+          }
+        },
+        {
+          "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
+          "if": "always()",
+          "with": {
+            "name": "unsigned-audit-${{ github.sha }}",
+            "path": "preflight-output/*.json\nprovision-output/*.json\nci-work/failure-summary.json\nci-work/compiled-dependency-notice-check.json\nci-work/trial-progress.json",
+            "if-no-files-found": "warn",
             "retention-days": 3
           }
         }
