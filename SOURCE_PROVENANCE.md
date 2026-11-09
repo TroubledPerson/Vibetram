@@ -1,0 +1,11 @@
+# Source provenance
+
+Public base: https://github.com/openai/codex/tree/fe74a774532af67b5a4a3dec03ce9469e17f89af (annotated tag rust-v0.156.0 resolves to this commit through the official GitHub API).
+
+The historical 5606b6c0ac6554bab2c049f1d07be79d8af2b90e identifier is a local android-openssl-probe commit, not an absent public upstream commit. Its recorded change enables the Android arm64 openssl-sys vendored feature in codex-rs/core/Cargo.toml. The recorded local compatibility files are app-server-transport/src/transport/unix_socket.rs, arg0/Cargo.toml, arg0/src/lib.rs, core/src/installation_id.rs and network-proxy/src/credential_broker/replacement.rs. This component snapshot does not claim to contain all compatibility/build inputs.
+
+The native overlay contains the reviewed app-server and app-server-transport source checkpoint, including project status-only gate/session/auth-pairing changes. It derives through the preserved 1.85 native candidate, corrected activation-time gate, 1.90 offline session and 1.91 final host revision. Native originals changed relative to the accessible local baseline carry a prominent provenance/modification notice in this copy. Source and copied-byte SHA-256 values are listed in SOURCE_MANIFEST.json. Public connection_auth.rs and remote_control/protocol.rs at the base match recorded baseline SHA-256 values after LF-to-CRLF conversion.
+
+integration-java contains the five final 1.91 host integration files. legacy-android-java contains 92 historical 1.83 Android Java files for source reference, not a complete 1.91 Android application; the generated private BuildEvidence.java stamp is excluded. The legacy tree is not newly validated against 1.91. No live credentials, runtime state, private notes, logs, local build paths or original signing configuration accompany this snapshot.
+
+This snapshot adds notices and documentation only; it does not alter the preserved engineering inputs or prove a reproducible Android release. The maintainer must qualify complete public build inputs and required notices before a release claim.

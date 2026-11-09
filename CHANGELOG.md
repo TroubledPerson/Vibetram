@@ -1,0 +1,26 @@
+# Changelog
+
+## 1.91 alpha — planned first public Android build, not released
+
+The source/host-test checkpoint is complete; the Android APK, owner-phone testing and GitHub release upload are pending. Intended release asset: `Vibetram-Alpha-1.91-Android.apk`. No existing 1.90 APK represents this version.
+
+### Implemented and host-validated
+
+- Added an offline-only continuation from the existing managed sign-in parser into native status-only enable/pairing/status/disable components, using synthetic authentication/backend/transport.
+- Fixed inactive signed-out session retirement cancelling the session created after first sign-in.
+- Preserved revocation after prior Stop, activation or authenticated owner change; added exact installation/environment binding and stale-result rejection.
+- Added generic device naming and remote serialization minimization for personal paths/user-agent text.
+- Tested cancellation during enrollment, queued completion rejection, expiry, strict schemas, metadata persistence and child/reader cleanup.
+- Final host results: 86 native test executions and 44 Java/native checks. These overlap functionality and do not establish live or Android compatibility.
+
+### Pending
+
+- Publication of the reviewed source snapshot. Public upstream provenance and required notices are verified, and Apache-2.0 for original Vibetram code is approved.
+- Android native rebuild from final 1.91 source, Android-safe Activity/process adapter and explicit Stop/focus-loss controls; normal and canceled/expired runs on a phone.
+- Compile/manifest/permission, payload identity, uncompressed aligned resources.arsc, native alignment, ZIP integrity and existing-certificate signature verification.
+- Actual GitHub release asset upload and remote hash/size verification.
+- Official host withdrawal and this-conversation compatibility. Live authentication/pairing remains separately restricted.
+
+### Product direction
+
+Vibetram Mobile is the Android prototype. Vibetram Desktop is planned as an Electron-free client intended to reduce overhead and RAM usage; no desktop release or comparative RAM benchmark exists. The project is independent and unaffiliated with OpenAI. No logo asset is included until the owner's clean terminal-and-headphones artwork, without old text/tagline, is available and cleared for use.

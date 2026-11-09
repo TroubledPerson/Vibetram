@@ -1,0 +1,7 @@
+# Licensing
+
+The owner approved Apache License 2.0 for original Vibetram code on 2026-11-09. Original project additions, integration Java and historical project Android Java in this source snapshot are distributed under Apache-2.0; see LICENSE. The per-file provenance inventory is SOURCE_MANIFEST.json. The licence decision does not establish legal or trademark clearance for the project name or an artwork asset.
+
+OpenAI Codex-derived portions are based on openai/codex tag rust-v0.156.0, commit fe74a774532af67b5a4a3dec03ce9469e17f89af. Their Apache-2.0 licence and applicable copyright/modification notices remain intact. LICENSES/Apache-2.0.txt and upstream NOTICE, including OpenAI and Ratatui attribution, are preserved. Required attribution is distinct from an optional contributor acknowledgement or endorsement.
+
+External dependencies retain their own licences. No dependency archives, vendored third-party libraries, compiled binaries or artwork are included. A future APK requires a target-resolved dependency and native-payload notice inventory; the root licence does not replace those obligations or grant trademark rights. No clean project icon is included because its final asset identity has not been verified for this snapshot.

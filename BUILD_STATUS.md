@@ -1,0 +1,9 @@
+# Build and validation status
+
+This is a source candidate, not a complete portable Android build or APK. For code inspection, obtain upstream openai/codex tag rust-v0.156.0 and verify commit fe74a774532af67b5a4a3dec03ce9469e17f89af. native-overlay preserves the two reviewed native crates under their upstream paths. Do not treat copying this partial overlay as a tested build recipe: the compatibility changes and final Android adapter/UI still need qualification.
+
+Historical engineering tools: Rust 1.95.0, Android arm64 API 29, NDK 30.0.16248370, JDK 17 and Android platform/build-tools 35. No compiler, SDK, cache, signing key or dependency binary is distributed. No public build command has been run for this snapshot. No tested installer or desktop client is provided.
+
+The final 1.91 engineering revision passed 86 overlapping native test executions and 44 Java/native host checks using synthetic process-only authentication, enrollment and memory transport. Copy-time notices have not been compiled; source hashes bind the preserved tested inputs separately. The historical Android Java reference tree is not covered by those counts. No 1.91 Android cross-compile, APK, phone test, live connection or server-side host deletion is established.
+
+The intended first public APK is Vibetram-Alpha-1.91-Android.apk. It is pending genuine construction, verification and owner phone testing. Never substitute or relabel 1.90. Preserve default OFF, explicit activation, non-renewable 120-second lifetime, status-only filtering, Stop/focus-loss cancellation and no automatic restart. Live authentication, enrollment, networking and persistent access remain outside the offline stage.
