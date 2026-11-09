@@ -8,7 +8,7 @@ ROOT=pathlib.Path('D:/job/work');CACHE=ROOT/'profile/AppData/Local/Microsoft/Win
 def report():
  return {'state':'CAPTURED_ALIAS_AND_REGULAR_TARGET_METADATA_STOP','relativePath':EXPECTED_ALIAS,'reparseTagHex':'0xa0000003','targetClass':'INTERNAL_LEXICAL_ONLY_NOT_QUALIFIED','physicalTargetMetadataQualified':True,'targetMetadataOpenedIndependently':True,'linkTraversed':False,'physicalTargetRelative':EXPECTED_TARGET,'targetJobRelative':EXPECTED_TARGET,'physicalTargetTagHex':'0x0','fileIdentity':[1,0,4],'physicalTargetIdentity':[1,0,3],'physicalAncestorCount':3,'physicalAncestors':[{'depth':i,'identity':[1,0,i+1],'tagHex':'0x0','attributes':'0x10'} for i in range(3)],'rawRecordSHA256':'a'*64,'rawRecordBytes':392}
 def guard():
- g=object.__new__(Guard);g.root=ROOT;g.work=ROOT;g.roots=[ROOT];g.env={};g.races=0;g.pending_reparse=None;g.alias_baseline=None;g.alias_last_result=None;g.alias_failure=None;g.alias_passes=0;g.alias_charged_bytes=0;g.qualified_links=set();return g
+ g=object.__new__(Guard);g.root=ROOT;g.work=ROOT;g.roots=[ROOT];g.env={};g.races=0;g.pending_reparse=None;g.alias_baseline=None;g.alias_last_result=None;g.alias_failure=None;g.alias_passes=0;g.alias_charged_bytes=0;g.qualified_links=set();g.scratch_baselines={};g.scratch_parent_baselines={};return g
 class AliasPolicy(unittest.TestCase):
  def test_valid_lease(self):self.assertIsNotNone(lease_key(report()))
  def test_external_class_fatal(self):

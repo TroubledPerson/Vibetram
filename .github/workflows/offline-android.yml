@@ -70,6 +70,9 @@
         },
         {
           "run": "python -B ci/test_msvc_pins.py"
+        },
+        {
+          "run": "python -B ci/test_scratch_snapshot.py"
         }
       ]
     },

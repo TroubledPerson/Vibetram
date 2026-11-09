@@ -1,6 +1,7 @@
 """Monitored hosted unsigned-trial helpers; no signing or credential access."""
 import pathlib,os,subprocess,time,shutil,json,re,hashlib
 from reparse_metadata import capture as capture_reparse_metadata,EXPECTED_ALIAS,EXPECTED_TARGET
+from scratch_snapshot import ScratchTracker,IncompleteScratchSnapshot,eligible as eligible_scratch,MAX_ATTEMPTS,MAX_INTERRUPTS
 from alias_accounting import ALIAS_METADATA_BYTES,AliasAppeared,exact_alias,safe_absence,disjoint_roots,lease_key,compare_baseline
 MIN_FREE=40*1024**3
 MAX_OUTPUT=64*1024**3
@@ -62,16 +63,18 @@ class Guard:
   self.root=root;self.work=work;self.out=out;self.env=env;self.start=time.monotonic();self.count=0;self.peak=0;self.races=0
   self.roots=[work,out,pathlib.Path(env['CARGO_HOME']),pathlib.Path(env['RUSTUP_HOME'])]
   assert shutil.disk_usage(root).free>=MIN_FREE+MAX_OUTPUT,'INSUFFICIENT_INITIAL_TRIAL_RESERVATION'
-  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.check()
+  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.scratch_baselines={};self.scratch_parent_baselines={};self.snapshot_incomplete=0;self.last_completed_bytes=None;self.last_snapshot_complete=False;self.check()
  def _leased_pass(self):
   holder={}
   def scan(report):
-   key=lease_key(report);compare_baseline(self.alias_baseline,key);holder['key']=key;holder['bytes']=self._walk(report);return holder['bytes']
+   key=lease_key(report);compare_baseline(self.alias_baseline,key)
+   if self.alias_baseline is None:self.alias_baseline=key
+   holder['key']=key;holder['bytes']=self._walk(report);return holder['bytes']
   result=capture_reparse_metadata(self.work,EXPECTED_ALIAS,callback=scan);self.alias_last_result=result
   if result.get('state')=='PASS_EXACT_ALIAS_LEASED_ACCOUNTING_METADATA':
    key=lease_key(result);compare_baseline(self.alias_baseline,key);compare_baseline(holder.get('key'),key)
    assert result.get('leasedScanCompleted') is True and 'bytes' in holder,'INCOMPLETE_LEASED_ACCOUNTING'
-   first=self.alias_baseline is None;self.alias_baseline=key;self.alias_passes+=1;self.alias_charged_bytes=ALIAS_METADATA_BYTES
+   first=self.alias_passes==0;self.alias_baseline=key;self.alias_passes+=1;self.alias_charged_bytes=ALIAS_METADATA_BYTES
    if first:print('QUALIFIED_JOB_ALIAS_ACCOUNTING '+json.dumps({'alias':EXPECTED_ALIAS,'independentTarget':EXPECTED_TARGET,'aliasIdentity':result['fileIdentity'],'targetIdentity':result['physicalTargetIdentity'],'reparseTag':result['reparseTagHex'],'targetTag':result['physicalTargetTagHex'],'rawRecordSHA256':result['rawRecordSHA256'],'aliasMetadataBytes':ALIAS_METADATA_BYTES,'aliasTraversed':False,'sameVolumeRegularAncestors':result['physicalAncestorCount']}),flush=True)
    return holder['bytes']
   if self.alias_baseline is None and safe_absence(result):return None
@@ -89,9 +92,12 @@ class Guard:
     after=self._leased_pass()
     return after if after is not None else total
    raise AssertionError('ALIAS_APPEARANCE_OR_IDENTITY_RACE')
+  except IncompleteScratchSnapshot:raise
   except (AssertionError,OSError,RuntimeError) as error:
    self.alias_failure=str(error)[:300];raise
  def _walk(self,lease):
+  with ScratchTracker(self.work,self.scratch_baselines,self.scratch_parent_baselines) as scratch:return self._walk_tracked(lease,scratch)
+ def _walk_tracked(self,lease,scratch):
   total=0;alias_visits=0;target_visits=0
   def walk_error(error):raise error
   for root in self.roots:
@@ -107,6 +113,8 @@ class Guard:
        alias_visits+=1;assert alias_visits==1,'DUPLICATE_ALIAS_ENUMERATION';dirs.remove(name);total+=ALIAS_METADATA_BYTES;continue
       self.pending_reparse=(root,d.relative_to(root))
       raise AssertionError('UNQUALIFIED_OUTPUT_DIRECTORY_LINK:'+str(d.relative_to(root)))
+     if root==self.work and eligible_scratch(self.work,d):
+      total+=scratch.scan(d,total);dirs.remove(name)
     for name in files:
      p=pathlib.Path(folder)/name
      try:
@@ -126,16 +134,29 @@ class Guard:
       else:total+=p.stat().st_size
      except FileNotFoundError:
       if lease is not None and root==self.work and p.is_relative_to(self.work/EXPECTED_TARGET):raise AssertionError('IE_TARGET_FILE_SNAPSHOT_RACE')
-      self.races+=1
+      self.races+=1;raise AssertionError('UNVERIFIED_FILE_DISAPPEARANCE')
   if lease is not None:assert alias_visits==1 and target_visits==1,'ALIAS_OR_INDEPENDENT_TARGET_ENUMERATION_COUNT'
   return total
  def check(self,log=0):
-  used=self.size();self.peak=max(self.peak,used);elapsed=time.monotonic()-self.start
-  reason=limits(shutil.disk_usage(self.root).free,used,elapsed,log)
-  assert not reason,reason
-  return elapsed,used
+  for attempt in range(MAX_ATTEMPTS):
+   elapsed=time.monotonic()-self.start
+   reason=limits(shutil.disk_usage(self.root).free,self.peak,elapsed,log);assert not reason,reason
+   try:used=self.size()
+   except IncompleteScratchSnapshot as error:
+    self.snapshot_incomplete+=1;self.last_snapshot_complete=False
+    self.peak=max(self.peak,error.partial_bytes+error.allocation_bytes)
+    reason=limits(shutil.disk_usage(self.root).free,self.peak,time.monotonic()-self.start,log);assert not reason,reason
+    if self.snapshot_incomplete>MAX_INTERRUPTS:
+     self.alias_failure='INCOMPLETE_SNAPSHOT_GLOBAL_BOUND';raise AssertionError(self.alias_failure)
+    print('INCOMPLETE_SNAPSHOT_RESCAN '+json.dumps({'attempt':attempt+1,'relative':error.relative,'verifiedIdentity':error.identity,'confirmedPartialBytes':error.partial_bytes,'deletedDirectoryAllocationHold':error.allocation_bytes,'unmeasuredResidualBytes':None,'completedTotalReported':False,'priorPeakRetained':self.peak}),flush=True)
+    continue
+   self.peak=max(self.peak,used);elapsed=time.monotonic()-self.start
+   reason=limits(shutil.disk_usage(self.root).free,used,elapsed,log);assert not reason,reason
+   self.last_completed_bytes=used;self.last_snapshot_complete=True
+   return elapsed,used
+  self.alias_failure='INCOMPLETE_SNAPSHOT_RETRY_BOUND';raise AssertionError(self.alias_failure)
  def report(self):
-  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'snapshotDisappearanceRaces':self.races,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
+  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'snapshotDisappearanceRaces':self.races,'verifiedIncompleteSnapshots':self.snapshot_incomplete,'lastSnapshotComplete':self.last_snapshot_complete,'lastCompletedSnapshotBytes':self.last_completed_bytes,'unmeasuredIncompleteResidualBytes':None,'peakIsExactHistoricalMaximum':False,'snapshotAttemptBound':MAX_ATTEMPTS,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
  def run(self,args,cwd=None,env=None,capture=False,timeout=None):
   self.check();self.count+=1;index=self.count;label=pathlib.Path(str(args[0])).name
   stdout=self.work/f'command-{index:02d}.stdout.log';stderr=self.work/f'command-{index:02d}.stderr.log'
