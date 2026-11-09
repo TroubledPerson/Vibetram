@@ -57,17 +57,21 @@ def regular_chain(path):
  assert path.is_file(),"TOOL_NOT_FILE"
 def configure_args(prefix):
  return ["./Configure","--prefix="+prefix,"--openssldir=/usr/local/ssl","no-shared","no-module","no-tests","no-comp","no-zlib","no-zlib-dynamic","--libdir=lib","no-ssl3","no-md2","no-rc5","no-weak-ssl-ciphers","no-camellia","no-idea","no-seed","no-stdio","linux-aarch64","-O2","-DANDROID","-ffunction-sections","-fdata-sections","-fPIC","--target=aarch64-linux-android","-w","--target=aarch64-linux-android29"]
+def probe_layout(root):
+ roots=[root/name for name in ("openssl-probe-work","openssl-probe-output","openssl-probe-cargo","openssl-probe-rustup")]
+ assert all(not a.is_relative_to(b) and not b.is_relative_to(a) for i,a in enumerate(roots) for b in roots[i+1:]),"OVERLAPPING_PROBE_ROOTS"
+ return roots
 def main():
  assert os.name=="nt" and os.environ.get("GITHUB_REPOSITORY")=="TroubledPerson/Vibetram" and os.environ.get("GITHUB_REF")=="refs/heads/main"
  event=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
  assert os.environ["GITHUB_EVENT_NAME"]=="push" and "[openssl-probe-191]" in event["head_commit"]["message"]
  source_check(ROOT)
- work=ROOT/"openssl-probe-work";out=ROOT/"openssl-probe-output"
- assert not work.exists() and not out.exists(),"PRESERVE_EXISTING_PROBE"
+ work,out,cargo,rustup=probe_layout(ROOT)
+ assert not any(p.exists() for p in (work,out,cargo,rustup)),"PRESERVE_EXISTING_PROBE"
  assert shutil.disk_usage(ROOT).free>=MIN_FREE+MAX_OUTPUT
- work.mkdir();out.mkdir()
- for p in ("tmp","home","profile","profile/AppData/Local","profile/AppData/Roaming","cargo","rustup"):(work/p).mkdir(parents=True,exist_ok=True)
- parent=os.environ.copy();parent.update(CARGO_HOME=str(work/"cargo"),RUSTUP_HOME=str(work/"rustup"))
+ work.mkdir();out.mkdir();cargo.mkdir();rustup.mkdir()
+ for p in ("tmp","home","profile","profile/AppData/Local","profile/AppData/Roaming"):(work/p).mkdir(parents=True,exist_ok=True)
+ parent=os.environ.copy();parent.update(CARGO_HOME=str(cargo),RUSTUP_HOME=str(rustup))
  env=clean_env(parent,work);guard=Guard(ROOT,work,out,env)
  guard.run([sys.executable,"-B",__file__,"--materialize",str(work)],env=env,timeout=180)
  git=pathlib.Path(r"C:\Program Files\Git\cmd\git.exe");perl=git.parents[1]/"usr/bin/perl.exe"

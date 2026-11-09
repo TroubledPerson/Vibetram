@@ -1,2 +1,4 @@
 /openssl-probe-work/
 /openssl-probe-output/
+/openssl-probe-cargo/
+/openssl-probe-rustup/

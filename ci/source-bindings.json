@@ -9,7 +9,7 @@
   },
   {
     "path": ".gitignore",
-    "sha256": "94e1989e9c86c52586a6b37b997255bfa9157629f8396bab6477aa2944b5e73e"
+    "sha256": "d18234e40948bd47a5d8b566171e324ec956b46be8daee3b24d69d5e6e8ca65b"
   },
   {
     "path": "ASSET_EXCLUSIONS.json",
@@ -197,7 +197,7 @@
   },
   {
     "path": "ci/openssl_probe.py",
-    "sha256": "1fea37e6d47307b684105ce900c3fd952318da211beb5b03a6b5160e40dd62e7"
+    "sha256": "78f4c71384a2cce61d069d2b8a53c086f608ae236c1a9a516b55ac4df077d497"
   },
   {
     "path": "ci/provision_rust.py",
@@ -261,7 +261,7 @@
   },
   {
     "path": "ci/test_openssl_probe.py",
-    "sha256": "85223a437d4556148097aadba4be3ceb43481666a14eac03ea881fbd5ab668b9"
+    "sha256": "ab4e60358b1ec558f7798a24e6147a8cd89e8ac3098f310b3a8a24f652c6b86e"
   },
   {
     "path": "ci/test_ordinary_churn.py",

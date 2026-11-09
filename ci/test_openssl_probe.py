@@ -1,5 +1,5 @@
 import unittest,tarfile,pathlib
-from openssl_probe import safe_member,validate_members,configure_args,PREFIX,CHECKSUM
+from openssl_probe import safe_member,validate_members,configure_args,PREFIX,CHECKSUM,probe_layout
 class ProbePolicy(unittest.TestCase):
  def member(self,name,size=1,kind=tarfile.REGTYPE):
   x=tarfile.TarInfo(name);x.size=size;x.type=kind;return x
@@ -35,5 +35,11 @@ class ProbePolicy(unittest.TestCase):
   self.assertEqual(args[:3],["./Configure","--prefix=D:/owned/install","--openssldir=/usr/local/ssl"])
   self.assertIn("linux-aarch64",args);self.assertIn("--target=aarch64-linux-android29",args)
   self.assertNotIn("no-asm",args);self.assertNotIn("no-ssl",args)
+ def test_layout(self):
+  roots=probe_layout(pathlib.Path.cwd())
+  self.assertEqual(len(set(roots)),4)
+  self.assertEqual({p.name for p in roots},{"openssl-probe-work","openssl-probe-output","openssl-probe-cargo","openssl-probe-rustup"})
+  for i,a in enumerate(roots):
+   for b in roots[i+1:]:self.assertFalse(a.is_relative_to(b) or b.is_relative_to(a))
  def test_checksum(self):self.assertEqual(CHECKSUM,"46eb8fb9fb3b61ce1c0f8a026c4c1a0714d3a9e138e7fbde78753ce2babc3846")
 if __name__=="__main__":unittest.main()
