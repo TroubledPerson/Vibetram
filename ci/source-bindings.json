@@ -28,8 +28,12 @@
     "sha256": "514531ec4d5f114a5ae6b86969ca8a57dbb79e99b5aebf78e6372f401abdf5b9"
   },
   {
+    "path": "CI_RUNNER_PLAN.md",
+    "sha256": "c8cbf5bc2e00c2b4950e6b4ac75fa202db847e342d5fdbf33e354e539e16100a"
+  },
+  {
     "path": "CI_STATUS.md",
-    "sha256": "13994a6beceed9e6d99659564915a32629382c4cd5ba4efefea741735fb5ec98"
+    "sha256": "4244ab384997539922ee93ca18703ba5bbc8d7ceed4ebc5049226ce042a460d8"
   },
   {
     "path": "DEPENDENCIES.md",
