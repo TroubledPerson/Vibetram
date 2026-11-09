@@ -33,7 +33,7 @@
   },
   {
     "path": "CI_STATUS.md",
-    "sha256": "2796db2b7f35568437e7d2f8402b146add63ad2fd7fe99b555f36200aefe820f"
+    "sha256": "8a0ca2e6a08c22c736e13d2054f0333abdab19d5bd1c0226eacb41ea1be31509"
   },
   {
     "path": "DEPENDENCIES.md",
@@ -169,7 +169,7 @@
   },
   {
     "path": "ci/msvc_env.py",
-    "sha256": "951e007195cd7a3983984ccfeaf21eae6b7fd04ce16355b8f2c5cc1e3eaad4de"
+    "sha256": "08c593ab89fab7db2db8d9d57e8f62ce743093a17ebf70bbfa3294687be51d5f"
   },
   {
     "path": "ci/msvc_probe.py",

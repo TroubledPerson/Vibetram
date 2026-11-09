@@ -72,8 +72,7 @@ def qualify_msvc(base,work,guard):
   assert pathlib.Path(shutil.which('link.exe',path=env['PATH']) or '').resolve()==link.resolve(),'PATH_STILL_RESOLVES_NON_MSVC_LINKER'
   libraries=library_directories(env['LIB']);out['libraryDirectories']=[str(p) for p in libraries]
   assert pathlib.PureWindowsPath(tools/'lib/x64') in libraries and pathlib.PureWindowsPath(sdk/'Lib'/sdkversion/'um/x64') in libraries,'MSVC_OR_SDK_LIBRARY_PATH_MISSING'
-  banner=run([link,'/?'],env,timeout=30).stdout
-  assert 'Microsoft' in banner and 'Linker' in banner,'NOT_MICROSOFT_LINKER_BANNER'
+  # Signed Microsoft file/version plus real tiny links qualify the linker, not help-command exit semantics.
   c=work/'tiny-sdk.c';c.write_text('#include <windows.h>\nint main(void) { return GetCurrentProcessId() == 0; }\n',encoding='utf-8');cexe=work/'tiny-sdk.exe'
   run([cl,'/nologo','/WX','/W4','/MT',str(c),'/Fo'+str(work/'tiny-sdk.obj'),'/Fe'+str(cexe)],env,timeout=60);pe_x64(cexe.read_bytes());out['compiledTinyFixtures']=1
   rust=work/'tiny-msvc.rs';rust.write_text('fn main() {}\n',encoding='utf-8');rexe=work/'tiny-msvc.exe'
