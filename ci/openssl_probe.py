@@ -57,6 +57,20 @@ def regular_chain(path):
  assert path.is_file(),"TOOL_NOT_FILE"
 def configure_args(prefix):
  return ["./Configure","--prefix="+prefix,"--openssldir=/usr/local/ssl","no-shared","no-module","no-tests","no-comp","no-zlib","no-zlib-dynamic","--libdir=lib","no-ssl3","no-md2","no-rc5","no-weak-ssl-ciphers","no-camellia","no-idea","no-seed","no-stdio","linux-aarch64","-O2","-DANDROID","-ffunction-sections","-fdata-sections","-fPIC","--target=aarch64-linux-android","-w","--target=aarch64-linux-android29"]
+def perl_metadata_program():
+ return """use Config;
+use File::Spec::Functions qw(rel2abs);
+use JSON::PP;
+my $p = rel2abs(".");
+print encode_json({version=>$Config{version},arch=>$Config{archname},os=>$^O,unixPaths=>((index($p,"/")>=0 && index($p,chr(92))<0) ? JSON::PP::true : JSON::PP::false)});
+"""
+def validate_perl_metadata(data):
+ assert type(data) is dict and set(data)=={"version","arch","os","unixPaths"},"PERL_METADATA_SCHEMA"
+ for key in ("version","arch","os"):
+  assert type(data[key]) is str and 0<len(data[key])<=160 and all(c.isalnum() or c in ".-_+" for c in data[key]),"PERL_METADATA_FIELD"
+ assert type(data["unixPaths"]) is bool,"PERL_METADATA_BOOLEAN"
+ assert data["unixPaths"],"UNQUALIFIED_PERL_UNIX_PATHS"
+ return data
 def probe_environment(work,cargo,rustup):
  env=clean_env(os.environ,work)
  env.update(CARGO_HOME=str(cargo),RUSTUP_HOME=str(rustup))
@@ -81,9 +95,11 @@ def main():
  git=pathlib.Path(r"C:\Program Files\Git\cmd\git.exe");perl=git.parents[1]/"usr/bin/perl.exe"
  regular_chain(git);regular_chain(perl)
  git_version=guard.run([git,"--version"],env=env,capture=True,timeout=15).stdout.strip()
- perl_code='use Config;use File::Spec::Functions qw(rel2abs); print "$Config{version}\\n$Config{archname}\\n",rel2abs("."),"\\n";'
- details=guard.run([perl,"-e",perl_code],env=env,capture=True,timeout=15).stdout.strip().splitlines()
- assert len(details)==3 and "msys" in details[1].lower() and "/" in details[2] and "\\" not in details[2],"UNQUALIFIED_PERL_PLATFORM"
+ metadata_program=work/"perl-metadata.pl";metadata_program.write_text(perl_metadata_program(),encoding="ascii")
+ details=json.loads(guard.run([perl,metadata_program],env=env,capture=True,timeout=15).stdout)
+ preliminary={"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"metadata":details}
+ (out/"installed-perl-metadata.json").write_text(json.dumps(preliminary,indent=2)+"\n",encoding="utf-8")
+ validate_perl_metadata(details)
  ndk=pathlib.Path(os.environ["ANDROID_HOME"])/"ndk/30.0.16248370"
  assert "Pkg.Revision = 30.0.16248370" in (ndk/"source.properties").read_text(encoding="utf-8"),"PINNED_NDK_REVISION"
  cross=android_env(env,ndk);cross["OPENSSL_SRC_PERL"]=str(perl);cross["PERL"]=str(perl)
@@ -91,6 +107,7 @@ def main():
  for p in [tools/"clang.exe",tools/"llvm-ar.exe"]:regular_chain(p)
  cross.update(CC=str(tools/"clang.exe"),CFLAGS="--target=aarch64-linux-android29",AR=str(tools/"llvm-ar.exe"),ARFLAGS="crs",RANLIB=str(tools/"llvm-ranlib.exe"))
  src=work/"crate"/PREFIX/"openssl"
+ guard.run([perl,"-e","require q(./Configurations/unix-checker.pm);"],cwd=src,env=cross,capture=True,timeout=15)
  result=guard.run([perl,*configure_args((work/"install").as_posix())],cwd=src,env=cross,capture=True,timeout=120)
  makefile=src/"Makefile";assert makefile.is_file() and makefile.stat().st_size<16*1024**2,"CONFIGURE_MAKEFILE_MISSING"
  text=makefile.read_text(encoding="utf-8")
@@ -100,7 +117,7 @@ def main():
   if p.exists():
    regular_chain(p);v=guard.run([p,"--version"],env=env,capture=True,timeout=15).stdout.splitlines()[0]
    make_candidates.append({"path":str(p),"sha256":sha(p),"version":v})
- report={"state":"PASS_CONFIGURE_ONLY_NOT_COMPILED","gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"perlVersion":details[0],"perlArch":details[1],"unixPathSemantics":True,"opensslVersion":"3.6.3","crateVersion":VERSION,"archiveSHA256":CHECKSUM,"makefileSHA256":sha(makefile),"makeCandidates":make_candidates,"dependencyVersionsChanged":False,"compiled":False,"signed":False,"releasable":False,"provenance":"Installed Git for Windows on official GitHub hosted Windows image; binary hashes observed, not independent publisher attestation","monitor":guard.report()}
+ report={"state":"PASS_CONFIGURE_ONLY_NOT_COMPILED","gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"perlVersion":details["version"],"perlArch":details["arch"],"perlOS":details["os"],"OpenSSLUnixCheckerPassed":True,"unixPathSemantics":True,"opensslVersion":"3.6.3","crateVersion":VERSION,"archiveSHA256":CHECKSUM,"makefileSHA256":sha(makefile),"makeCandidates":make_candidates,"dependencyVersionsChanged":False,"compiled":False,"signed":False,"releasable":False,"provenance":"Installed Git for Windows on official GitHub hosted Windows image; binary hashes observed, not independent publisher attestation","monitor":guard.report()}
  source_check(ROOT);(out/"qualification.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8");print(json.dumps(report,indent=2))
 if __name__=="__main__":
  if len(sys.argv)==3 and sys.argv[1]=="--materialize":materialize(pathlib.Path(sys.argv[2]))

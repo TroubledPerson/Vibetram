@@ -1,5 +1,5 @@
 import unittest,tarfile,pathlib,os
-from openssl_probe import safe_member,validate_members,configure_args,PREFIX,CHECKSUM,probe_layout,probe_environment
+from openssl_probe import safe_member,validate_members,configure_args,PREFIX,CHECKSUM,probe_layout,probe_environment,validate_perl_metadata,perl_metadata_program
 class ProbePolicy(unittest.TestCase):
  def member(self,name,size=1,kind=tarfile.REGTYPE):
   x=tarfile.TarInfo(name);x.size=size;x.type=kind;return x
@@ -42,6 +42,22 @@ class ProbePolicy(unittest.TestCase):
   self.assertEqual(env["WINDIR"],os.environ["WINDIR"])
   self.assertEqual(env["CARGO_HOME"],str(roots[2]));self.assertEqual(env["RUSTUP_HOME"],str(roots[3]))
   self.assertNotIn("GITHUB_TOKEN",env);self.assertNotIn("ACTIONS_RUNTIME_TOKEN",env)
+ def metadata(self):return {"version":"5.40.3","arch":"x86_64-cygwin-thread-multi","os":"cygwin","unixPaths":True}
+ def test_metadata(self):self.assertTrue(validate_perl_metadata(self.metadata())["unixPaths"])
+ def test_metadata_nonunix(self):
+  d=self.metadata();d["unixPaths"]=False
+  with self.assertRaises(AssertionError):validate_perl_metadata(d)
+ def test_metadata_boolean(self):
+  d=self.metadata();d["unixPaths"]=1
+  with self.assertRaises(AssertionError):validate_perl_metadata(d)
+ def test_metadata_extra(self):
+  d=self.metadata();d["path"]="unneeded"
+  with self.assertRaises(AssertionError):validate_perl_metadata(d)
+ def test_metadata_private_path(self):
+  d=self.metadata();d["arch"]="C:/private"
+  with self.assertRaises(AssertionError):validate_perl_metadata(d)
+ def test_perl_program(self):
+  self.assertIn("use JSON::PP;",perl_metadata_program());self.assertNotIn("-e",perl_metadata_program())
  def test_layout(self):
   roots=probe_layout(pathlib.Path.cwd())
   self.assertEqual(len(set(roots)),4)

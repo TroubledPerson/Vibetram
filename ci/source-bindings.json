@@ -197,7 +197,7 @@
   },
   {
     "path": "ci/openssl_probe.py",
-    "sha256": "064839b03ffd3ff10771892f67b8fcd7552bfb03617fffe24121158dd0a71470"
+    "sha256": "5f2c799b8e793034346b5a52e42986d1d5dcb67df7d21b5b6985e1ae32b1a22d"
   },
   {
     "path": "ci/provision_rust.py",
@@ -261,7 +261,7 @@
   },
   {
     "path": "ci/test_openssl_probe.py",
-    "sha256": "306833425666db1501dbf789bf6738f716652e62fe9e06e867ba2cab09c22019"
+    "sha256": "56db8c052ee412960528e47ca4f0e762cb7dfa27475b383f8d69c3cf226ce176"
   },
   {
     "path": "ci/test_ordinary_churn.py",
