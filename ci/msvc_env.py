@@ -26,6 +26,10 @@ def apply_exports(base,exports,link,compiler,archiver):
  return out
 def required_inputs(tools,sdk,version):
  return [tools/'lib/x64/libcmt.lib',sdk/'Lib'/version/'um/x64/kernel32.lib',sdk/'Lib'/version/'ucrt/x64/ucrt.lib',tools/'include/vcruntime.h',sdk/'Include'/version/'ucrt/stdio.h',sdk/'Include'/version/'um/Windows.h']
+def library_directories(value):
+ paths=[pathlib.PureWindowsPath(p.strip().strip('"')) for p in value.split(';') if p.strip()]
+ assert paths and all(p.is_absolute() and '..' not in p.parts for p in paths),'INVALID_MSVC_LIBRARY_DIRECTORY'
+ return paths
 def pe_x64(data):
  assert data[:2]==b'MZ' and len(data)>=64,'QUALIFICATION_PE_MISSING';at=struct.unpack_from('<I',data,60)[0]
  assert at+6<=len(data) and data[at:at+4]==b'PE\0\0' and struct.unpack_from('<H',data,at+4)[0]==0x8664,'QUALIFICATION_NOT_X64_PE'
@@ -66,7 +70,8 @@ def qualify_msvc(base,work,guard):
   assert all(p.is_file() for p in required),'MSVC_OR_WINDOWS_SDK_INPUT_MISSING'
   env=apply_exports(base,exported,link,cl,lib)
   assert pathlib.Path(shutil.which('link.exe',path=env['PATH']) or '').resolve()==link.resolve(),'PATH_STILL_RESOLVES_NON_MSVC_LINKER'
-  assert str(tools/'lib/x64').lower() in env['LIB'].lower() and str(sdk/'Lib'/sdkversion/'um/x64').lower() in env['LIB'].lower(),'MSVC_OR_SDK_LIBRARY_PATH_MISSING'
+  libraries=library_directories(env['LIB']);out['libraryDirectories']=[str(p) for p in libraries]
+  assert pathlib.PureWindowsPath(tools/'lib/x64') in libraries and pathlib.PureWindowsPath(sdk/'Lib'/sdkversion/'um/x64') in libraries,'MSVC_OR_SDK_LIBRARY_PATH_MISSING'
   banner=run([link,'/?'],env,timeout=30).stdout
   assert 'Microsoft' in banner and 'Linker' in banner,'NOT_MICROSOFT_LINKER_BANNER'
   c=work/'tiny-sdk.c';c.write_text('#include <windows.h>\nint main(void) { return GetCurrentProcessId() == 0; }\n',encoding='utf-8');cexe=work/'tiny-sdk.exe'

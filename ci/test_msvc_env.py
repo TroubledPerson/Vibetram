@@ -1,5 +1,5 @@
 import unittest,struct,pathlib
-from msvc_env import parse_exports,apply_exports,pe_x64,EXPORTS,discovery_env,required_inputs
+from msvc_env import parse_exports,apply_exports,pe_x64,EXPORTS,discovery_env,required_inputs,library_directories
 class MsvcPolicy(unittest.TestCase):
  def good(self):
   return {'PATH':'official;git','INCLUDE':'sdk','LIB':'libs','LIBPATH':'libs','VCToolsInstallDir':'tools','VCToolsVersion':'14.44.1','WindowsSdkDir':'sdk','WindowsSDKVersion':'10.0.26100.0','VSCMD_ARG_TGT_ARCH':'x64','VSCMD_ARG_HOST_ARCH':'x64'}
@@ -42,4 +42,9 @@ class MsvcPolicy(unittest.TestCase):
  def test_ucrt_headers_are_sdk_inputs(self):
   files=required_inputs(pathlib.Path('vc'),pathlib.Path('sdk'),'10.0.1.0')
   self.assertIn(pathlib.Path('sdk/Include/10.0.1.0/ucrt/stdio.h'),files);self.assertIn(pathlib.Path('vc/include/vcruntime.h'),files);self.assertNotIn(pathlib.Path('vc/include/stdio.h'),files)
+ def test_windows_library_normalization(self):
+  dirs=library_directories('C:/SDK//lib/10.0.1.0/um/x64;C:/VC/lib/x64/')
+  self.assertIn(pathlib.PureWindowsPath('c:/sdk/lib/10.0.1.0/um/x64'),dirs);self.assertIn(pathlib.PureWindowsPath('C:/VC/lib/x64'),dirs)
+ def test_relative_library_path_rejected(self):
+  with self.assertRaises(AssertionError):library_directories('relative/lib')
 if __name__=='__main__':unittest.main()
