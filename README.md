@@ -1,6 +1,6 @@
 # Vibetram
 
-Designed for Codex and ChatGPT integration; compatibility is under development. Planned Electron-free desktop client, intended to reduce overhead and RAM usage.
+Vibetram is an open-source graphical interface project built on top of [OpenAI Codex CLI](https://github.com/openai/codex), currently a work in progress. Codex and ChatGPT integration compatibility is under development. Planned Electron-free desktop client, intended to reduce overhead and RAM usage.
 
 - **Vibetram Mobile**: experimental Android prototype.
 - **Vibetram Desktop**: planned; no desktop release is available.
@@ -16,6 +16,12 @@ The intended pilot defaults off, requires explicit activation and expires after 
 ## Source and builds
 
 The reviewed source archive contains the reviewed native components, five 1.91 host integration Java files and historical Android Java reference source. The public upstream identity and Apache-2.0/NOTICE are verified; the owner has approved Apache-2.0 for original Vibetram code. It is not a complete portable Android build. No release APK, binary, signing key, private log or user account/session data is included. See LICENSING.md, SOURCE_PROVENANCE.md, DEPENDENCIES.md and BUILD_STATUS.md.
+
+## Upstream credit
+
+Vibetram is built on top of [OpenAI Codex CLI](https://github.com/openai/codex), using adapted native Codex app-server and transport components as part of the project, rather than merely providing a link to a separate Codex app. The published 1.91 checkpoint runs those components in offline host tests; this is not yet a validated 1.91 Android APK or a verified full end-to-end Codex GUI.
+
+Credit to OpenAI and the upstream contributors for the Codex code on which the reviewed native components are based. Applicable Apache-2.0 and third-party notices are preserved in [LICENSE](LICENSE), [NOTICE](NOTICE) and [LICENSING.md](LICENSING.md); see [source provenance](SOURCE_PROVENANCE.md) for the exact base and modifications. This credit does not imply an official or supported integration, affiliation or endorsement.
 
 ## Branding and independence
 
