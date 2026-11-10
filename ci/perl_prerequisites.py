@@ -1,6 +1,6 @@
 """Batch installed Perl prerequisite inventory; no installation or native compilation."""
 import pathlib,re,json,hashlib,os,urllib.request,tarfile,io
-SEEDS={"Carp","Config","Cwd","Data::Dumper","Digest::SHA","Exporter","File::Basename","File::Compare","File::Copy","File::Glob","File::Path","File::Spec","File::Spec::Functions","File::Temp","FindBin","Getopt::Std","Getopt::Long","IO::Handle","IO::Select","IPC::Cmd","IPC::Open3","JSON::PP","Locale::Maketext::Simple","Module::Load::Conditional","Params::Check","POSIX","Scalar::Util","Symbol","Text::ParseWords","Text::Template","Time::Piece"}
+SEEDS={"base","Carp","Config","Cwd","Data::Dumper","Digest::SHA","Exporter","File::Basename","File::Compare","File::Copy","File::Glob","File::Path","File::Spec","File::Spec::Functions","File::Temp","FindBin","Getopt::Std","Getopt::Long","IO::Handle","IO::Select","IPC::Cmd","IPC::Open3","JSON::PP","Locale::Maketext::Simple","Module::Load::Conditional","Params::Check","POSIX","Scalar::Util","Symbol","Text::ParseWords","Text::Template","Time::Piece"}
 CANDIDATES=(("Git for Windows",pathlib.Path("C:/Program Files/Git/usr/bin/perl.exe")),("MSYS2",pathlib.Path("C:/msys64/usr/bin/perl.exe")),("Strawberry",pathlib.Path("C:/Strawberry/perl/bin/perl.exe")))
 MODULE=re.compile(r"[A-Za-z_]\w*(?:::\w+)*",re.ASCII)
 def imports(text):

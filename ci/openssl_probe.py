@@ -118,10 +118,10 @@ def main():
  git_version=guard.run([git,"--version"],env=env,capture=True,timeout=15).stdout.strip()
  src=work/"crate"/PREFIX/"openssl"
  selected,module_inventory=inventory(guard,env,work,out,src)
+ overlay_report=None
  if selected is None:
-  guard.run([sys.executable,"-B",str(pathlib.Path(__file__).with_name("perl_prerequisites.py")),"--cpan-proposal",str(out)],env=env,timeout=60)
-  stop={"state":"NO_INSTALLED_COMPLETE_UNIX_PERL_NOT_CONFIGURED","configured":False,"modulesInstalled":False,"moduleInventoryFile":"perl-module-inventory.json","requiredModuleCount":len(module_inventory["requiredModules"]),"candidateSummary":[{"installation":x["installation"],"status":x["status"],"metadata":x.get("metadata"),"failedRoots":[m for m,v in x.get("modules",{}).items() if not v["loaded"]],"missingModules":sorted({m for v in x.get("modules",{}).values() for m in v["missing"]})} for x in module_inventory["candidates"]],"CPANProposal":json.loads((out/"cpan-proposal.json").read_text(encoding="utf-8")),"monitor":guard.report()}
-  (out/"qualification-stop.json").write_text(json.dumps(stop,indent=2)+"\n",encoding="utf-8");print(json.dumps(stop,indent=2),flush=True);return
+  from perl_overlay import repair_git_perl
+  selected,env,overlay_report=repair_git_perl(guard,env,work,out,src,module_inventory);guard.env=env
  perl=pathlib.Path(selected["path"]);details=selected["metadata"];validate_perl_metadata(details)
  preliminary={"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":selected["sha256"],"metadata":details,"requiredModuleCount":len(module_inventory["requiredModules"])}
  print("SELECTED_COMPLETE_PERL "+json.dumps(preliminary),flush=True)
@@ -131,10 +131,20 @@ def main():
   cross.update(CC=str(tools/"clang.exe"),CFLAGS="--target=aarch64-linux-android29",AR=str(tools/"llvm-ar.exe"),ARFLAGS="crs",RANLIB=str(tools/"llvm-ranlib.exe"))
   guard.run([perl,"-e","require q(./Configurations/unix-checker.pm);"],cwd=src,env=cross,capture=True,timeout=15)
   guard.run([perl,*configure_args((work/"install").as_posix())],cwd=src,env=cross,capture=True,timeout=120)
- def selected_callback():
+ overlay_input={}
+ def selected_checks():
   assert sha(perl)==selected["sha256"],"PERL_BINARY_CHANGED"
   guard.run([perl,"-c","./Configure"],cwd=src,env=env,capture=True,timeout=25)
   physical_inputs.update(with_physical_ndk_inputs(guard,env,out,configure_physical))
+ def selected_callback():
+  if overlay_report is None:selected_checks();return
+  from perl_overlay import MODULE_SHA
+  module=work/"perl-overlay/lib/Locale/Maketext/Simple.pm"
+  def checked_overlay():
+   assert sha(module)==MODULE_SHA,"OVERLAY_MODULE_CHANGED"
+   selected_checks()
+  overlay_input.update(capture_one(work/"perl-overlay",module,callback=checked_overlay))
+  assert overlay_input["qualified"] and overlay_input.get("callbackSucceeded"),"OVERLAY_OR_CONFIGURE_FAILED"
  perl_lease=capture_one(perl.parent,perl,callback=selected_callback)
  print("SELECTED_PERL_LEASE "+json.dumps(perl_lease),flush=True)
  assert perl_lease["qualified"] and perl_lease.get("callbackSucceeded"),"SELECTED_PERL_OR_CONFIGURE_FAILED"
@@ -142,7 +152,7 @@ def main():
  text=makefile.read_text(encoding="utf-8")
  assert "PLATFORM=linux-aarch64" in text and "--target=aarch64-linux-android29" in text,"CONFIGURE_TARGET_NOT_PRESERVED"
  make_candidates=[] # Make execution is deliberately outside this configure-only phase.
- report={"state":"PASS_CONFIGURE_ONLY_NOT_COMPILED","physicalInputMetadata":physical_inputs,"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"perlVersion":details["version"],"perlArch":details["arch"],"perlOS":details["os"],"OpenSSLUnixCheckerPassed":True,"unixPathSemantics":True,"opensslVersion":"3.6.3","crateVersion":VERSION,"archiveSHA256":CHECKSUM,"makefileSHA256":sha(makefile),"makeCandidates":make_candidates,"makeQualification":"UNRUN","requiredModuleInventoryFile":"perl-module-inventory.json","requiredModuleCount":len(module_inventory["requiredModules"]),"dependencyVersionsChanged":False,"compiled":False,"signed":False,"releasable":False,"provenance":"Installed Git for Windows on official GitHub hosted Windows image; binary hashes observed, not independent publisher attestation","monitor":guard.report()}
+ report={"state":"PASS_CONFIGURE_ONLY_NOT_COMPILED","physicalInputMetadata":physical_inputs,"overlayInputMetadata":overlay_input,"PerlOverlayUsed":overlay_report is not None,"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"perlVersion":details["version"],"perlArch":details["arch"],"perlOS":details["os"],"OpenSSLUnixCheckerPassed":True,"unixPathSemantics":True,"opensslVersion":"3.6.3","crateVersion":VERSION,"archiveSHA256":CHECKSUM,"makefileSHA256":sha(makefile),"makeCandidates":make_candidates,"makeQualification":"UNRUN","requiredModuleInventoryFile":"perl-overlay-module-smoke.json" if overlay_report is not None else "perl-module-inventory.json","requiredModuleCount":len(module_inventory["requiredModules"]),"dependencyVersionsChanged":False,"compiled":False,"signed":False,"releasable":False,"provenance":"Installed Git for Windows on official GitHub hosted Windows image; binary hashes observed, not independent publisher attestation","monitor":guard.report()}
  source_check(ROOT);(out/"qualification.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8");print(json.dumps(report,indent=2))
 if __name__=="__main__":
  if len(sys.argv)==3 and sys.argv[1]=="--materialize":materialize(pathlib.Path(sys.argv[2]))

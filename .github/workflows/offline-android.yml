@@ -94,6 +94,9 @@
         },
         {
           "run": "python -B ci/test_perl_prerequisites.py"
+        },
+        {
+          "run": "python -B ci/test_perl_overlay.py"
         }
       ]
     },
