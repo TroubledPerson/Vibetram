@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "fb333082210ecc7a640ed93e662dad21adb9696bcb8e8c5db99c5bf3afc68932"
+    "sha256": "e25edba7cd71b6f1646e3ccd9136498b212a19aa9c620e1baa096da09e39e45f"
   },
   {
     "path": ".gitignore",
@@ -205,7 +205,7 @@
   },
   {
     "path": "ci/perl_overlay.py",
-    "sha256": "ce1489b31cc2e0c7ec8fcb448960b41dfb84ea394038268debc2e6e57f1c2165"
+    "sha256": "ae42fcd33c6885017b64337b73129a69ad6ae9a39a50943d2887228eabd92a2f"
   },
   {
     "path": "ci/perl_prerequisites.py",
@@ -285,7 +285,7 @@
   },
   {
     "path": "ci/test_perl_overlay.py",
-    "sha256": "1429daa57689c757821f29555ff16df39158e32f613c3a1c1130b54dd6d445cd"
+    "sha256": "dd8b882abadf3c672c139a882d082e0bc3bc1f794056b12e38bd06eac9ee71ab"
   },
   {
     "path": "ci/test_perl_prerequisites.py",

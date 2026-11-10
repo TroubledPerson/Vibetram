@@ -52,4 +52,57 @@ class Overlay(unittest.TestCase):
   with self.assertRaises(AssertionError):parse_overlay_path(self.path()+self.path())
  def test_no_ipc_run(self):
   s=focused_program();self.assertNotIn("IPC::Cmd::run(",s);self.assertIn('IPC::Cmd->can("run")',s)
+
+import json
+class RuntimeQualification(unittest.TestCase):
+ def archive(self,extra=None,requires=None):
+  import perl_overlay as x
+  meta={"name":"Synthetic","version":"1.00","license":["perl_5"],"prereqs":{"runtime":{"requires":requires or {"strict":"0"}}}}
+  content={"Synthetic-1.00/META.json":json.dumps(meta).encode(),"Synthetic-1.00/lib/Fixture/Helper.pm":b"package Fixture::Helper; 1;\n","Synthetic-1.00/README":b"Synthetic licence fixture\n"}
+  buf=io.BytesIO()
+  with tarfile.open(fileobj=buf,mode="w:gz") as tar:
+   for path,body in content.items():
+    item=tarfile.TarInfo(path);item.size=len(body);tar.addfile(item,io.BytesIO(body))
+   if extra:
+    item=tarfile.TarInfo(extra[0]);item.type=extra[1];item.linkname="outside";tar.addfile(item)
+  data=buf.getvalue();pin=("S/SY/SYNTHETIC","Synthetic-1.00",hashlib.sha256(data).hexdigest(),"Synthetic","1.00")
+  return x.runtime_review(data,pin)
+ def test_runtime_archive(self):
+  files,report=self.archive();self.assertIn("lib/Fixture/Helper.pm",files);self.assertEqual(report["runtimeRequires"],{"strict":"0"})
+ def test_runtime_link(self):
+  with self.assertRaisesRegex(AssertionError,"RUNTIME_LINK_OR_SPECIAL"):self.archive(("Synthetic-1.00/link",tarfile.SYMTYPE))
+ def test_runtime_escape(self):
+  with self.assertRaisesRegex(AssertionError,"RUNTIME_MEMBER_PATH"):self.archive(("Synthetic-1.00/../escape",tarfile.REGTYPE))
+ def test_runtime_case_collision(self):
+  with self.assertRaisesRegex(AssertionError,"RUNTIME_DUPLICATE"):self.archive(("Synthetic-1.00/readme",tarfile.REGTYPE))
+ def test_runtime_documentation_not_executed(self):
+  files,_=self.archive(("Synthetic-1.00/lib/Fixture/FAQ.pod",tarfile.REGTYPE));self.assertNotIn("lib/Fixture/FAQ.pod",files)
+ def test_runtime_native_library(self):
+  with self.assertRaisesRegex(AssertionError,"RUNTIME_NON_PURE_LIBRARY"):self.archive(("Synthetic-1.00/lib/native.dll",tarfile.REGTYPE))
+ def test_runtime_requirement_injection(self):
+  with self.assertRaisesRegex(AssertionError,"RUNTIME_REQUIREMENT_FIELD"):self.archive(requires={"strict":"0; die"})
+ def test_runtime_no_shadow(self):
+  from perl_overlay import select_missing
+  p={"Fixture":{"sha256":"a"*64}};self.assertEqual(select_missing(p,{"Fixture":[]}),["Fixture"]);self.assertEqual(select_missing(p,{"Fixture":["a"*64]}),[])
+  with self.assertRaisesRegex(AssertionError,"NO_SHADOW"):select_missing(p,{"Fixture":["b"*64]})
+ def test_runtime_presence_schema(self):
+  from perl_overlay import select_missing
+  with self.assertRaisesRegex(AssertionError,"SCHEMA"):select_missing({"Fixture":{}},{})
+ def test_runtime_presence_not_errors_as_missing(self):
+  from perl_overlay import presence_program
+  s=presence_program(["Fixture"]);self.assertIn('die "module metadata inaccessible"',s);self.assertIn('ENOENT || $! == ENOTDIR',s);self.assertIn('die "module link or special"',s)
+ def test_actual_helpers_not_reflection(self):
+  from perl_overlay import runtime_helper_program
+  s=runtime_helper_program();self.assertIn("IPC::Cmd::can_run($p)",s);self.assertIn("MM->maybe_command($p)",s);self.assertNotIn('->can("can_run")',s);self.assertNotIn('use ExtUtils::MakeMaker',s);self.assertNotIn('system(',s);self.assertNotIn('`',s)
+ def test_runtime_keyword_module_version(self):
+  from perl_overlay import runtime_version_program
+  s=runtime_version_program({"if":["0"]});self.assertIn('$m->VERSION("0")',s);self.assertNotIn("if->VERSION",s);self.assertIn('require "$f.pm"',s)
+ def test_runtime_pins(self):
+  from perl_overlay import RUNTIME_PACKAGES
+  self.assertEqual(len(RUNTIME_PACKAGES),4);self.assertTrue(all(len(x[2])==64 for x in RUNTIME_PACKAGES));self.assertEqual(RUNTIME_PACKAGES[0][4],"7.76")
+ def test_runtime_workflow_no_configure(self):
+  import pathlib
+  w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());job=w["jobs"]["perl-runtime"]
+  self.assertEqual(job["permissions"],{"contents":"read"});self.assertIn("[perl-runtime-191]",job["if"]);self.assertEqual(job["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-diagnosis")
+
 if __name__=="__main__":unittest.main()
