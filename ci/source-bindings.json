@@ -181,7 +181,7 @@
   },
   {
     "path": "ci/lock_diagnostic.py",
-    "sha256": "7626ba0399f25362aa8094301cc4ea1d11db7bc1233da81401d7730f2ee88a9b"
+    "sha256": "a99866a94659ca348de5e2f9e4d7f30a8623153827269f7bcede9a0304d71a4e"
   },
   {
     "path": "ci/msvc_env.py",
@@ -257,7 +257,7 @@
   },
   {
     "path": "ci/test_lock_diagnostic.py",
-    "sha256": "a2e167d32573948db010d45528ef3a55d7017c17b6b2b7a87cb29c236d489b53"
+    "sha256": "ef129950d80033ca8ebd9da3d50235ea129f64c7925f47023ee647b09e318c4c"
   },
   {
     "path": "ci/test_lock_repair.py",

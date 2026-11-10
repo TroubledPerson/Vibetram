@@ -2,6 +2,11 @@
 import os,pathlib,posixpath,re,json,tomllib,hashlib,subprocess,shutil,time,urllib.parse,difflib
 ROOT=pathlib.Path(__file__).resolve().parents[1];WORK=ROOT/'lock-diagnostic-work';OUT=ROOT/'lock-diagnostic-output'
 MIN_FREE=40*1024**3;MAX_OUTPUT=8*1024**3;MAX_SECONDS=600;MAX_LOG=32*1024**2
+ENTRY_MARKERS=("[lock-diagnostic-191]","[unsigned-trial-191]")
+
+def allowed_entry(event_name,repository,ref,message):
+ return (event_name=="push" and repository=="TroubledPerson/Vibetram" and ref=="refs/heads/main" and isinstance(message,str) and any(marker in message for marker in ENTRY_MARKERS))
+
 def blob(data):return hashlib.sha1(b'blob '+str(len(data)).encode()+bytes([0])+data).hexdigest()
 def lock_delta(before,after):
  def key(p):return (p['name'],p['version'],p.get('source',''))
@@ -77,7 +82,7 @@ def main():
  from build_guard import clean_env
  from check_source import source_check
  assert os.name=='nt' and os.environ.get('GITHUB_REPOSITORY')=='TroubledPerson/Vibetram' and os.environ.get('GITHUB_REF')=='refs/heads/main'
- assert os.environ.get('GITHUB_EVENT_NAME')=='push';event=json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text());assert '[lock-diagnostic-191]' in event['head_commit']['message']
+ event=json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text());assert allowed_entry(os.environ.get('GITHUB_EVENT_NAME'),os.environ.get('GITHUB_REPOSITORY'),os.environ.get('GITHUB_REF'),event['head_commit']['message']),'LOCK_DIAGNOSTIC_ENTRY_GATE'
  source_check(ROOT);assert not WORK.exists() and not OUT.exists();WORK.mkdir();OUT.mkdir()
  for name in ('tmp','home','profile','profile/AppData/Local','profile/AppData/Roaming'):(WORK/name).mkdir(parents=True,exist_ok=True)
  env=clean_env(os.environ,WORK);d=Diagnostic(env);original=(ROOT/'codex-rs/Cargo.lock').read_bytes();original_hash=hashlib.sha256(original).hexdigest();old=tomllib.loads(original.decode())
