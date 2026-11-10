@@ -175,8 +175,35 @@ def isolated_rust_cleanup(proc,args,env,work,stdout,stderr,sampler):
  assert pathlib.Path(args[0]).name.lower() in ('rustc','rustc.exe') and str(work/'tiny-msvc.rs') in [str(x) for x in args],'RUST_CLEANUP_PROBE_FIXED_SCOPE'
  assert env.get('VIBETRAM_VERIFIED_VCTIP')==VCTIP_SHA256 and 'VIBETRAM_QUALIFIED_RUST_VCTIP' not in env,'RUST_CLEANUP_PROBE_PRODUCTION_OFF'
  local=env.copy();local['VIBETRAM_QUALIFIED_RUST_VCTIP']='1'
+ assert proc.poll()==0,'RUST_CLEANUP_PROBE_PARENT_SUCCESS'
+ import stat,hashlib
+ def captured_logs():
+  rows=[]
+  for path in (stdout,stderr):
+   before=path.lstat();assert stat.S_ISREG(before.st_mode) and not getattr(before,'st_file_attributes',0)&0x400 and not getattr(before,'st_reparse_tag',0) and before.st_size<=1024**2,'RUST_PROBE_CAPTURE_TYPE'
+   data=path.read_bytes();after=path.lstat();key=lambda m:(m.st_dev,m.st_ino,m.st_size,m.st_mtime_ns)
+   assert key(before)==key(after),'RUST_PROBE_CAPTURE_RACE'
+   rows.append((key(after),hashlib.sha256(data).hexdigest()))
+  return rows
+ logs=captured_logs()
  result=compiler_completion(proc,args,local,work,stdout,stderr,sampler)
- assert result and result['state']=='VERIFIED_OPTIONAL_TELEMETRY_CLEANUP' and result['fixture']=='TINY_RUST_MSVC','RUST_CLEANUP_PROBE_NOT_QUALIFIED'
+ if result is None:
+  # Verify normal completion directly; calling this probe override recursively
+  # would confuse classification and must never stand in for kernel proof.
+  from census_supervisor import OwnedProcess
+  proof=OwnedProcess.finish(proc,sampler=sampler)
+  assert proof.get('directJobTermination') is False,'RUST_PROBE_NATURAL_RESULT_FORCED'
+  result={'state':'VERIFIED_NATURAL_EMPTY_JOB','fixture':'TINY_RUST_MSVC'}
+ else:
+  assert result.get('state')=='VERIFIED_OPTIONAL_TELEMETRY_CLEANUP' and result.get('fixture')=='TINY_RUST_MSVC','RUST_CLEANUP_PROBE_NOT_QUALIFIED'
+  proof=proc.teardown
+ assert proof and proof.get('processTreeExitIndependentlyVerified') is True and proof.get('completeActiveMemberAccounting') is True and proof.get('activeMembers')==0 and proof.get('knownHandlesExited') is True and not proc.cleanup_errors and not proof.get('supervisionFailures'),'RUST_PROBE_COMPLETION_UNVERIFIED'
+ held=proof['heldIdentities'];assert held and all(r['exited'] for r in held),'RUST_PROBE_HELD_SURVIVOR'
+ root=[r for r in held if (r['pid'],r['creationFiletime'])==(proc.initial['pid'],proc.initial['creationFiletime'])]
+ assert len(root)==1 and root[0]['exitCode']==0,'RUST_PROBE_ROOT_IDENTITY_OR_EXIT'
+ outputs=closed_compiler_outputs(work,proof,rust=True)
+ assert captured_logs()==logs,'RUST_PROBE_OUTPUT_CHANGED'
+ result.update(rootExit=0,capturedLogsUnchanged=True,outputs=outputs,zeroOwnedMembersVerified=True)
  return result
 
 
@@ -205,7 +232,7 @@ def setup_only_main():
    return super().start(args,cwd,env,**kw)
   def finish(self,terminate=False,sampler=None,seconds=3):
    if getattr(self,'rust_cleanup_probe',False) and not terminate and self.teardown is None:
-    a,e,w,o,err=self.rust_invocation;verified=isolated_rust_cleanup(self,a,e,w,o,err,sampler);observations.append({'phase':'rust-cleanup-only','state':'PASS_VERIFIED_RUST_TELEMETRY_CLEANUP','fixture':verified['fixture']})
+    a,e,w,o,err=self.rust_invocation;verified=isolated_rust_cleanup(self,a,e,w,o,err,sampler);observations.append({'phase':'rust-cleanup-only','state':'PASS_'+verified['state'],'fixture':verified['fixture'],'zeroOwnedMembersVerified':verified['zeroOwnedMembersVerified']})
    if (self.setup_target or self.compiler_target) and not terminate and self.teardown is None:
     row={'phase':'rust' if self.rust_target else ('compiler' if self.compiler_target else 'setup')};observations.append(row);natural_setup_exit(self,sampler,lambda j,r:owned_image(j,r,sampler),row,seconds)
    result=super().finish(terminate,sampler,seconds)

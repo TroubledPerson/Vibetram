@@ -193,7 +193,7 @@
   },
   {
     "path": "ci/msvc_probe.py",
-    "sha256": "ccc104c63d39e995b8f2cf57b0f2d61959863bc7f7b228d835a6a20547bd71ee"
+    "sha256": "21c632a314309795acb79970161f0ccd518672dd350d67a842791e090270efed"
   },
   {
     "path": "ci/ndk_input_metadata.py",
