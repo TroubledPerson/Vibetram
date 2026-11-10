@@ -392,7 +392,10 @@ class Guard:
      if time.monotonic()-last>=30:
       print(f'TRIAL_PROGRESS stage={index} elapsed={int(elapsed)} retainedBytes={used} freeBytes={shutil.disk_usage(self.root).free}',flush=True);last=time.monotonic()
      time.sleep(.25)
-   code=proc.returncode;self._command_deadline=None;proc.finish(sampler=self._sampler);assert not proc.cleanup_errors,'OWNED_PROCESS_SUPERVISION_FAILED';proc.close();self.check(stdout.stat().st_size+stderr.stat().st_size)
+   code=proc.returncode;self._command_deadline=None
+   from msvc_probe import compiler_completion
+   compiler_completion(proc,launch_args,env or self.env,self.work,stdout,stderr,self._sampler)
+   proc.finish(sampler=self._sampler);assert not proc.cleanup_errors,'OWNED_PROCESS_SUPERVISION_FAILED';proc.close();self.check(stdout.stat().st_size+stderr.stat().st_size)
    assert code==0,'SUBPROCESS_FAILED'
    result=subprocess.CompletedProcess(args,code,stdout.read_text(encoding='utf-8',errors='replace') if capture else None,stderr.read_text(encoding='utf-8',errors='replace') if capture else None)
    self.commands.append({'stage':index,'tool':label,'exit':code,'seconds':round(time.monotonic()-started,3),'ownedJobTeardown':proc.teardown,'executableBinding':executable_binding})

@@ -108,6 +108,55 @@ def closed_compiler_outputs(work,proof):
   rows.append(row)
  return rows
 
+
+# Narrow normal-completion contract for the pinned tiny SDK compiler only.
+# Optional vendor telemetry is never excluded from ownership or zero-member proof.
+VCTIP_SHA256='41fe46f8a0b41f6dd94c68c85fba20a10aacb662a9ef04784a632e37f3692371'
+VCTIP_RELATIVE='Microsoft Visual Studio/18/Enterprise/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/vctip.exe'
+
+def validate_telemetry_member(row):
+ assert row['imageBaseName'].lower()=='vctip.exe' and row['locationClass']=='ProgramFiles','COMPILER_HELPER_IMAGE'
+ assert row['relativeImage']==VCTIP_RELATIVE and row['imageSHA256']==VCTIP_SHA256 and row['fileVersion']=='14.51.36260.0','COMPILER_HELPER_PIN'
+ assert row['vendorCompanyMetadataMatchesMicrosoft'] is True and not row['vendorResourceFieldsMissing'],'COMPILER_HELPER_PROVENANCE'
+ assert row['vendorResourceStrings']['OriginalFilename']=='VCTIP.EXE' and row['vendorResourceStrings']['FileDescription']=='Microsoft\u00ae VC compiler and tools experience improvement data uploader','COMPILER_HELPER_PURPOSE'
+ return (row['pid'],row['creationFiletime'])
+
+def compiler_completion(proc,args,env,work,stdout,stderr,sampler,describe=None,validate_outputs=None):
+ if not env.get('VIBETRAM_VERIFIED_VCTIP'):return None
+ if pathlib.Path(args[0]).name.lower()!='cl.exe':return None
+ expected=['/nologo','/WX','/W4','/MT',str(work/'tiny-sdk.c'),'/Fo'+str(work/'tiny-sdk.obj'),'/Fe'+str(work/'tiny-sdk.exe')]
+ assert [str(x) for x in args[1:]]==expected,'COMPILER_COMPLETION_SCOPE'
+ assert env['VIBETRAM_VERIFIED_VCTIP']==VCTIP_SHA256,'COMPILER_COMPLETION_SIGNATURE_ATTESTATION'
+ assert proc.poll()==0,'COMPILER_COMPLETION_ROOT_EXIT'
+ describe=describe or owned_image;validate_outputs=validate_outputs or closed_compiler_outputs
+ import hashlib,stat
+ def captured():
+  result=[]
+  for path in (stdout,stderr):
+   a=path.lstat();assert stat.S_ISREG(a.st_mode) and not getattr(a,'st_file_attributes',0)&0x400 and not getattr(a,'st_reparse_tag',0) and a.st_size<=1024**2,'COMPILER_CAPTURE_TYPE_OR_BOUND'
+   data=path.read_bytes();b=path.lstat()
+   assert (a.st_dev,a.st_ino,a.st_size,a.st_mtime_ns)==(b.st_dev,b.st_ino,b.st_size,b.st_mtime_ns),'COMPILER_CAPTURE_CHANGED'
+   result.append((a.st_dev,a.st_ino,len(data),hashlib.sha256(data).hexdigest()))
+  return result
+ logs=captured();rows=proc.observe();active=proc.api.active_count(proc.job)
+ if not rows and active==0:return None
+ assert len(rows)==active==1 and not rows[0]['exited'],'COMPILER_COMPLETION_UNKNOWN_MEMBERS'
+ member=describe(proc,rows[0],sampler);identity=validate_telemetry_member(member)
+ assert identity==(rows[0]['pid'],rows[0]['creationFiletime']),'COMPILER_COMPLETION_HELD_IDENTITY'
+ fresh=proc.observe();active=proc.api.active_count(proc.job)
+ assert (not fresh and active==0) or (len(fresh)==active==1 and (fresh[0]['pid'],fresh[0]['creationFiletime'])==identity),'COMPILER_COMPLETION_MEMBERS_CHANGED'
+ proof=proc.finish(terminate=True,sampler=sampler)
+ assert not proc.cleanup_errors and proof.get('processTreeExitIndependentlyVerified') is True and proof.get('activeMembers')==0 and proof.get('knownHandlesExited') is True,'COMPILER_COMPLETION_ZERO_UNVERIFIED'
+ allowed={(proc.initial['pid'],proc.initial['creationFiletime']),identity}
+ assert all((r['pid'],r['creationFiletime']) in allowed for r in proof['heldIdentities']+proof['observedBefore']),'COMPILER_COMPLETION_LATE_UNKNOWN_MEMBER'
+ assert {(r['pid'],r['creationFiletime']) for r in proof['heldIdentities']}==allowed,'COMPILER_COMPLETION_HELD_PROOF_INCOMPLETE'
+ assert all(r['exited'] for r in proof['heldIdentities']),'COMPILER_COMPLETION_SURVIVING_HANDLE'
+ assert captured()==logs,'COMPILER_CAPTURE_CHANGED_AFTER_STOP'
+ outputs=validate_outputs(work,proof)
+ proof['optionalCompilerCompletion']={'state':'VERIFIED_OPTIONAL_TELEMETRY_CLEANUP','rootExit':0,'helperIdentity':member,'capturedLogsUnchanged':True,'outputs':outputs,'allMembersAccounted':True,'purposeGuidanceURL':'https://developercommunity.visualstudio.com/t/11157272','guidanceScope':'14.50; exact 14.51 separately tested','normalWorkloadSuccessNotInferredFromTermination':True}
+ return proof['optionalCompilerCompletion']
+
+
 class SetupOnlyComplete(RuntimeError):pass
 
 def setup_only_main():
@@ -149,7 +198,7 @@ def setup_only_main():
     except BaseException as error:contracts.append(getattr(error,'setup_contract_diagnostic',{'failureClass':type(error).__name__}));raise
    result=super().run(args,*a,**kw)
    if is_compiler:
-    captured.update(compilerOutputsValidated=True,outputs=closed_compiler_outputs(work,guard.commands[-1]['ownedJobTeardown']),normalCompletionWithoutTermination=True)
+    captured.update(compilerOutputsValidated=True,outputs=closed_compiler_outputs(work,guard.commands[-1]['ownedJobTeardown']),normalCompletionWithoutTermination=not guard.commands[-1]['ownedJobTeardown']['directJobTermination'])
    if len(args)==4 and pathlib.Path(args[-1])==work/'msvc-setup.cmd':
     exports=parse_exports(result.stdout);captured.update(requiredExportsPresent=True,x64HostAndTarget=exports['VSCMD_ARG_TGT_ARCH']==exports['VSCMD_ARG_HOST_ARCH']=='x64',stdoutBytes=len(result.stdout.encode()),stdoutSHA256=hashlib.sha256(result.stdout.encode()).hexdigest(),stderrBytes=len(result.stderr.encode()),outputsReadOnlyAfterZeroMemberProof=True)
     if not optional and not compiler_only:raise SetupOnlyComplete('SETUP_ONLY_COMPLETE')
@@ -165,24 +214,24 @@ def setup_only_main():
     if optional:
      pins=json.loads((work/'msvc-qualification.json').read_text());assert pins.get('qualifiedToolPinsVerified') is True and pins['compiledTinyFixtures']==0,'SETUP_PINNED_INPUTS_NOT_VERIFIED'
      report.update(pinnedInputsVerifiedBeforeCompile=True,compilerBoundaryStoppedIntentionally=True)
-    report.update(state='PASS_COMPILER_ONLY_NATURAL_EXIT' if compiler_only else 'PASS_SETUP_ONLY_NATURAL_EXIT',captured=captured)
+    report.update(state=('PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP' if any(r['ownedJobTeardown'].get('optionalCompilerCompletion') for r in guard.commands) else 'PASS_COMPILER_ONLY_NATURAL_EXIT') if compiler_only else 'PASS_SETUP_ONLY_NATURAL_EXIT',captured=captured)
    else:raise AssertionError('SETUP_PROBE_COMPILATION_BOUNDARY')
  finally:
   report.update(elapsedSeconds=time.monotonic()-start,commands=guard.commands,sampledNotQuota=True,compiledAnything=captured.get('compilerInvoked',False),captured=captured)
-  if compiler_only and captured.get('compilerInvoked') and report['state']!='PASS_COMPILER_ONLY_NATURAL_EXIT':
+  if compiler_only and captured.get('compilerInvoked') and report['state'] not in ('PASS_COMPILER_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP'):
    failure=work/'failure-summary.json'
    if failure.is_file():
     failed=json.loads(failure.read_text());proof=failed.get('teardownDiagnostic',{});report['compilerFailureCleanup']=proof
     if proof.get('processTreeExitIndependentlyVerified') and proof.get('activeMembers')==0:
      try:report['retainedOutputsAfterFailureStop']=closed_compiler_outputs(work,proof)
      except BaseException as error:report['outputValidationFailureClass']=type(error).__name__
-  report['productionCompletionChanged']=False
+  report['productionCompletionChanged']=any(r['ownedJobTeardown'].get('optionalCompilerCompletion') for r in guard.commands)
   text=json.dumps(report,indent=2);assert len(text.encode())<=32768
   print('SETUP_LIFECYCLE_REPORT\n'+text,flush=True)
   summary=os.environ.get('GITHUB_STEP_SUMMARY')
   if summary:
    with open(summary,'a',encoding='utf-8') as f:f.write('## MSVC setup-only lifecycle\n\n```json\n'+text+'\n```\n')
- assert report['state'] in ('PASS_SETUP_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_NATURAL_EXIT'),'SETUP_LIFECYCLE_UNQUALIFIED'
+ assert report['state'] in ('PASS_SETUP_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP'),'SETUP_LIFECYCLE_UNQUALIFIED'
  source_check(ROOT)
 
 def main():

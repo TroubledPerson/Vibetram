@@ -195,6 +195,13 @@ def qualify_msvc(base,work,guard):
   tool_pins(pins,out);out['qualifiedToolPinsVerified']=True
   env=apply_exports(base,exported,link,cl,lib)
   if compiler_optout_requested():env,out['compilerTelemetryPolicy']=compiler_telemetry_environment(env,pins,out)
+  if compiler_optout_requested():
+   event=json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
+   if '[compiler-cleanup-191]' in event['head_commit']['message'] or '[qualified-vctip-cleanup-191]' in event['head_commit']['message']:
+    from msvc_probe import VCTIP_SHA256
+    helper=identities([bin/'vctip.exe']);assert len(helper)==1,'COMPILER_HELPER_SIGNATURE_COUNT'
+    assert helper[0]['name'].lower()=='vctip.exe' and helper[0]['authenticode']=='Valid' and helper[0]['company']=='Microsoft Corporation' and helper[0]['sha256']==VCTIP_SHA256,'COMPILER_HELPER_SIGNATURE_OR_PIN'
+    out['optionalCompilerHelperIdentity']=helper[0];env['VIBETRAM_VERIFIED_VCTIP']=VCTIP_SHA256
   assert pathlib.Path(shutil.which('link.exe',path=env['PATH']) or '').resolve()==link.resolve(),'PATH_STILL_RESOLVES_NON_MSVC_LINKER'
   libraries=library_directories(env['LIB']);out['libraryDirectories']=[str(p) for p in libraries]
   assert pathlib.PureWindowsPath(tools/'lib/x64') in libraries and pathlib.PureWindowsPath(sdk/'Lib'/sdkversion/'um/x64') in libraries,'MSVC_OR_SDK_LIBRARY_PATH_MISSING'

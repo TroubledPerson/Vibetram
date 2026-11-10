@@ -296,7 +296,7 @@ class CompilerCompletionProbe(unittest.TestCase):
    with self.assertRaisesRegex(AssertionError,'OUTPUT_CHANGED'):closed_compiler_outputs(root,proof)
  def test_compiler_probe_is_separate_and_stops_before_rust(self):
   import inspect,msvc_probe
-  text=inspect.getsource(msvc_probe.setup_only_main);self.assertIn('[compiler-lifecycle-only-191]',text);self.assertIn('COMPILER_ONLY_COMPLETE',text);self.assertIn("'rustc','rustc.exe'",text);self.assertIn('rootCommandPurpose',text);self.assertIn('compilerFailureCleanup',text);self.assertIn("report['productionCompletionChanged']=False",text)
+  text=inspect.getsource(msvc_probe.setup_only_main);self.assertIn('[compiler-lifecycle-only-191]',text);self.assertIn('COMPILER_ONLY_COMPLETE',text);self.assertIn("'rustc','rustc.exe'",text);self.assertIn('rootCommandPurpose',text);self.assertIn('compilerFailureCleanup',text);self.assertIn("report['productionCompletionChanged']=any",text)
  def test_owned_image_uses_held_identity_and_sanitized_vendor_metadata(self):
   import inspect,msvc_probe
   text=inspect.getsource(msvc_probe.owned_image);self.assertIn('members_held',text);self.assertIn('creationFiletime',text);self.assertIn('QueryFullProcessImageNameW',text);self.assertIn('FileDescription',text);self.assertIn('commandLineNotRead',text);self.assertNotIn('Get-CimInstance',text)
@@ -360,5 +360,89 @@ class HostedEventTempCompatibility(unittest.TestCase):
   with patch.dict(os.environ,{'RUNNER_TEMP':parent}):
    os.environ.pop('VIBETRAM_TEST_TMP',None)
    CompilerOptoutRequestFile('test_trusted_qualified_trial_reads_only_bounded_event').test_trusted_qualified_trial_reads_only_bounded_event()
+
+
+class OptionalTelemetryCompletion(unittest.TestCase):
+ def setup_case(self):
+  import types,uuid,os
+  from msvc_probe import VCTIP_SHA256,VCTIP_RELATIVE
+  work=pathlib.Path(os.environ['RUNNER_TEMP'])/('completion-'+uuid.uuid4().hex);work.mkdir()
+  out=work/'stdout';err=work/'stderr';out.write_bytes(b'compile output');err.write_bytes(b'')
+  row={'pid':42,'creationFiletime':123,'exited':False}
+  image={**row,'imageBaseName':'vctip.exe','locationClass':'ProgramFiles','relativeImage':VCTIP_RELATIVE,'imageSHA256':VCTIP_SHA256,'fileVersion':'14.51.36260.0','vendorCompanyMetadataMatchesMicrosoft':True,'vendorResourceFieldsMissing':[],'vendorResourceStrings':{'OriginalFilename':'VCTIP.EXE','FileDescription':'Microsoft\u00ae VC compiler and tools experience improvement data uploader'}}
+  state={'rows':[row],'code':0,'stopped':False,'proof':{'processTreeExitIndependentlyVerified':True,'activeMembers':0,'knownHandlesExited':True,'heldIdentities':[{'pid':1,'creationFiletime':2,'exited':True},{'pid':42,'creationFiletime':123,'exited':True}],'observedBefore':[row]},'calls':0}
+  def observe():state['calls']+=1;return state['rows']
+  def finish(**kw):
+   assert kw['terminate'] is True
+   state['stopped']=True
+   if state.get('mutate'):out.write_bytes(b'late output')
+   return state['proof']
+  proc=types.SimpleNamespace(initial={'pid':1,'creationFiletime':2},poll=lambda:state['code'],observe=observe,api=types.SimpleNamespace(active_count=lambda j:len(state['rows'])),job=object(),finish=finish,cleanup_errors=[])
+  args=[str(work/'cl.exe'),'/nologo','/WX','/W4','/MT',str(work/'tiny-sdk.c'),'/Fo'+str(work/'tiny-sdk.obj'),'/Fe'+str(work/'tiny-sdk.exe')]
+  return proc,args,{'VIBETRAM_VERIFIED_VCTIP':VCTIP_SHA256},work,out,err,state,image
+ def invoke(self,case,validator=None):
+  from msvc_probe import compiler_completion
+  proc,args,env,work,out,err,state,image=case
+  return compiler_completion(proc,args,env,work,out,err,None,describe=lambda *a:dict(image),validate_outputs=validator or (lambda *a:[{'validated':True}]))
+ def test_known_helper_success_uses_whole_job(self):
+  c=self.setup_case();r=self.invoke(c);self.assertTrue(c[6]['stopped']);self.assertEqual(r['state'],'VERIFIED_OPTIONAL_TELEMETRY_CLEANUP')
+ def test_unknown_hash_fatal_before_normal_cleanup(self):
+  c=self.setup_case();c[7]['imageSHA256']='0'*64
+  with self.assertRaises(AssertionError):self.invoke(c)
+  self.assertFalse(c[6]['stopped'])
+ def test_unknown_extra_member_fatal(self):
+  c=self.setup_case();c[6]['rows'].append({'pid':43,'creationFiletime':124,'exited':False})
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_failed_root_never_success(self):
+  c=self.setup_case();c[6]['code']=1
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_member_replacement_fatal(self):
+  c=self.setup_case();c[7]['creationFiletime']=999
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_purpose_mismatch_fatal(self):
+  c=self.setup_case();c[7]['vendorResourceStrings']['FileDescription']='other work'
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_zero_member_proof_required(self):
+  c=self.setup_case();c[6]['proof']['activeMembers']=1
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_captured_output_mutation_fatal(self):
+  c=self.setup_case();c[6]['mutate']=True
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_output_validator_failure_fatal(self):
+  c=self.setup_case()
+  def fail(*a):raise AssertionError('BAD_OUTPUT')
+  with self.assertRaises(AssertionError):self.invoke(c,fail)
+ def test_other_compiler_command_not_relaxed(self):
+  c=self.setup_case();c[1][0]=str(c[3]/'cargo.exe');self.assertIsNone(self.invoke(c));self.assertFalse(c[6]['stopped'])
+ def test_wrong_arguments_fatal(self):
+  c=self.setup_case();c[1].append('/other')
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_unmarked_policy_unchanged(self):
+  c=self.setup_case();c[2].clear();self.assertIsNone(self.invoke(c));self.assertFalse(c[6]['stopped'])
+ def test_naturally_empty_job_unchanged(self):
+  c=self.setup_case();c[6]['rows']=[];self.assertIsNone(self.invoke(c));self.assertFalse(c[6]['stopped'])
+ def test_metadata_denial_fatal(self):
+  from msvc_probe import compiler_completion
+  c=self.setup_case()
+  def denied(*a):raise PermissionError('fixture')
+  with self.assertRaises(PermissionError):compiler_completion(*c[:6],None,describe=denied)
+ def test_cleanup_supervision_failure_fatal(self):
+  c=self.setup_case();c[0].cleanup_errors.append('MISSED_SUPERVISION')
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_signature_attestation_required(self):
+  c=self.setup_case();c[2]['VIBETRAM_VERIFIED_VCTIP']='unverified'
+  with self.assertRaises(AssertionError):self.invoke(c)
+
+
+ def test_unknown_member_in_stop_proof_fatal(self):
+  c=self.setup_case();c[6]['proof']['heldIdentities'].append({'pid':99,'creationFiletime':100,'exited':True})
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_membership_changes_during_validation_fatal(self):
+  c=self.setup_case()
+  def changing():
+   c[6]['calls']+=1
+   return c[6]['rows'] if c[6]['calls']==1 else [{'pid':99,'creationFiletime':100,'exited':False}]
+  c[0].observe=changing
+  with self.assertRaises(AssertionError):self.invoke(c)
 
 if __name__=='__main__':unittest.main()

@@ -161,7 +161,7 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "c427323bb59c6ae860bf0c30a253f9d09d9828b5baf5668ab78b3bc4e13ee951"
+    "sha256": "0d3089127384778a63576f98b06f852efcf46d84e73714854a75e5ad77fb3eea"
   },
   {
     "path": "ci/census_supervisor.py",
@@ -185,7 +185,7 @@
   },
   {
     "path": "ci/msvc_env.py",
-    "sha256": "fb0f27ac696de0505bc2068a482f99a753ce58d1c2a1347bbe2d8e027f9cceb6"
+    "sha256": "0e22bab2847f03d7462e59a18ef29c71f35835275286268f15d4aa914dc2cf46"
   },
   {
     "path": "ci/msvc_pins.py",
@@ -193,7 +193,7 @@
   },
   {
     "path": "ci/msvc_probe.py",
-    "sha256": "b1c510d576b2a88b95bac6c024e40a36eb518eedeecd9487691a3e64ee7b9695"
+    "sha256": "02a58a3429ecbc5eb5c0cd804d19db1f7b65352906d8a4c6ca5ce5d42f0d7e9a"
   },
   {
     "path": "ci/ndk_input_metadata.py",
@@ -269,7 +269,7 @@
   },
   {
     "path": "ci/test_msvc_env.py",
-    "sha256": "09fe7e7d1b871fd5a4f8d2d8139403af2851ece3215250b714e4d2abe6276f71"
+    "sha256": "03148370d8898513afae1b0032eb6b5d7e7318f96f36efc8e74de227f4bc7e29"
   },
   {
     "path": "ci/test_msvc_pins.py",
