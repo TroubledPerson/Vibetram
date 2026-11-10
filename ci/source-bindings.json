@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "461f9909cb00cde77d09678bfde490fe556d0b60b47817d817d6b00e5241c103"
+    "sha256": "e668e4a6685d964b25e9560262dd3a77c68221aa5bcd4218f0971a72c320f929"
   },
   {
     "path": ".gitignore",
@@ -161,7 +161,7 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "0d3089127384778a63576f98b06f852efcf46d84e73714854a75e5ad77fb3eea"
+    "sha256": "b2d1349232f48851a6119be210cfa6ae987b818fee1e18772e8bc6703661dc77"
   },
   {
     "path": "ci/census_supervisor.py",
@@ -181,7 +181,7 @@
   },
   {
     "path": "ci/lld_probe.py",
-    "sha256": "3284b4d50eca79f3d17a4f80dfaec56c5e8a08810b656550a4b454a6f0a587a8"
+    "sha256": "4dab047f8faabd655aa2f3f418f51dde9cba0b0528714125586649aaf58a3d43"
   },
   {
     "path": "ci/lock_diagnostic.py",
@@ -266,6 +266,10 @@
   {
     "path": "ci/test_fixture_privacy.py",
     "sha256": "c8562e3e1c85e4837682da76da62cf3fa18e1fb029feca78808fa35c75c818e6"
+  },
+  {
+    "path": "ci/test_lld_binding.py",
+    "sha256": "459d377fe02114776de6788c858a78070e2bdc75433900a51e87e71bd4b12bde"
   },
   {
     "path": "ci/test_lld_probe.py",

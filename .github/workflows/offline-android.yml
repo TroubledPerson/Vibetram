@@ -106,6 +106,9 @@
         },
         {
           "run": "python -B ci/test_lld_probe.py"
+        },
+        {
+          "run": "python -B ci/test_lld_binding.py"
         }
       ]
     },
