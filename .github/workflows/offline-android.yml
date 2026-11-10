@@ -97,6 +97,9 @@
         },
         {
           "run": "python -B ci/test_perl_overlay.py"
+        },
+        {
+          "run": "python -B ci/test_owned_job_probe.py"
         }
       ]
     },
@@ -412,6 +415,38 @@
           "with": {
             "name": "overlay-diagnostic-${{ github.sha }}",
             "path": "dist/lease-*.json\ndist/perl-overlay-module-smoke.json\ndist/overlay-only-result.json\ndist/runtime-qualification.json\ndist/actual-configure.json\ndist/make-link-qualification.json\nci-work/trial-progress.json\nci-work/failure-summary.json\nci-work/msvc-qualification.json\npreflight-output/*.json\nprovision-output/*.json",
+            "if-no-files-found": "warn",
+            "retention-days": 3
+          }
+        }
+      ]
+    },
+    "owned-job-probe": {
+      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[owned-job-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "needs": "source-checks",
+      "runs-on": "windows-latest",
+      "timeout-minutes": 4,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Bounded owned Job Object qualification; Python fixtures only",
+          "timeout-minutes": 2,
+          "run": "python -B ci/owned_job_probe.py"
+        },
+        {
+          "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
+          "if": "always()",
+          "with": {
+            "name": "owned-job-qualification-${{ github.sha }}",
+            "path": "${{ runner.temp }}/vibetram-owned-job-${{ github.run_id }}/job-qualification.json",
             "if-no-files-found": "warn",
             "retention-days": 3
           }
