@@ -255,7 +255,8 @@ def runtime_version_program(requirements):
 
 def runtime_diagnosis():
  from openssl_probe import ROOT,PREFIX,probe_layout,probe_environment,with_physical_ndk_inputs
- from build_guard import Guard,MIN_FREE,MAX_OUTPUT,source_check
+ from build_guard import Guard,MIN_FREE,MAX_OUTPUT
+ from check_source import source_check
  from perl_prerequisites import inventory
  from ndk_input_metadata import capture_one
  import shutil

@@ -100,6 +100,14 @@ class RuntimeQualification(unittest.TestCase):
  def test_runtime_pins(self):
   from perl_overlay import RUNTIME_PACKAGES
   self.assertEqual(len(RUNTIME_PACKAGES),4);self.assertTrue(all(len(x[2])==64 for x in RUNTIME_PACKAGES));self.assertEqual(RUNTIME_PACKAGES[0][4],"7.76")
+ def test_runtime_function_imports_resolve(self):
+  import ast,inspect,importlib
+  from perl_overlay import runtime_diagnosis
+  tree=ast.parse(inspect.getsource(runtime_diagnosis))
+  for node in ast.walk(tree):
+   if isinstance(node,ast.ImportFrom):
+    module=importlib.import_module(node.module)
+    for alias in node.names:self.assertTrue(hasattr(module,alias.name),node.module+"."+alias.name)
  def test_runtime_workflow_no_configure(self):
   import pathlib
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());job=w["jobs"]["perl-runtime"]
