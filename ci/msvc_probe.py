@@ -165,6 +165,21 @@ def compiler_completion(proc,args,env,work,stdout,stderr,sampler,describe=None,v
  return proof['optionalCompilerCompletion']
 
 
+
+def isolated_rust_cleanup(proc,args,env,work,stdout,stderr,sampler):
+ # Called only inside the trusted, tiny probe class; never export this flag.
+ assert os.environ.get('GITHUB_REPOSITORY')=='TroubledPerson/Vibetram' and os.environ.get('GITHUB_REF')=='refs/heads/main' and os.environ.get('GITHUB_EVENT_NAME')=='push','RUST_CLEANUP_PROBE_TRUST'
+ event_path=pathlib.Path(os.environ['GITHUB_EVENT_PATH']);assert event_path.is_absolute() and 0<event_path.stat().st_size<=1024**2,'RUST_CLEANUP_PROBE_EVENT_BOUND'
+ message=json.loads(event_path.read_text(encoding='utf-8'))['head_commit']['message']
+ assert '[rust-cleanup-qualification-only-191]' in message and '[unsigned-trial-191]' not in message and '[qualified-rust-vctip-cleanup-191]' not in message,'RUST_CLEANUP_PROBE_ONLY'
+ assert pathlib.Path(args[0]).name.lower() in ('rustc','rustc.exe') and str(work/'tiny-msvc.rs') in [str(x) for x in args],'RUST_CLEANUP_PROBE_FIXED_SCOPE'
+ assert env.get('VIBETRAM_VERIFIED_VCTIP')==VCTIP_SHA256 and 'VIBETRAM_QUALIFIED_RUST_VCTIP' not in env,'RUST_CLEANUP_PROBE_PRODUCTION_OFF'
+ local=env.copy();local['VIBETRAM_QUALIFIED_RUST_VCTIP']='1'
+ result=compiler_completion(proc,args,local,work,stdout,stderr,sampler)
+ assert result and result['state']=='VERIFIED_OPTIONAL_TELEMETRY_CLEANUP' and result['fixture']=='TINY_RUST_MSVC','RUST_CLEANUP_PROBE_NOT_QUALIFIED'
+ return result
+
+
 class SetupOnlyComplete(RuntimeError):pass
 
 def setup_only_main():
@@ -182,11 +197,15 @@ def setup_only_main():
   def __init__(self):super().__init__();self.setup_target=False;self.compiler_target=False
   def start(self,args,cwd,env,**kw):
    self.rust_target=rust_only and pathlib.Path(args[0]).name.lower() in ('rustc','rustc.exe') and str(work/'tiny-msvc.rs') in [str(x) for x in args]
+   self.rust_cleanup_probe=self.rust_target and '[rust-cleanup-qualification-only-191]' in event['head_commit']['message']
+   if self.rust_cleanup_probe:self.rust_invocation=([str(x) for x in args],env.copy(),pathlib.Path(cwd),pathlib.Path(kw['stdout'].name),pathlib.Path(kw['stderr'].name))
    self.compiler_target=compiler_only and pathlib.Path(args[0]).name.lower()=='cl.exe' and str(work/'tiny-sdk.c') in [str(x) for x in args]
    self.compiler_target=self.compiler_target or self.rust_target
    self.setup_target=not compiler_only and len(args)==4 and pathlib.Path(args[0])==pathlib.Path(env['SystemRoot'])/'System32/cmd.exe' and args[1:3]==['/d','/c'] and pathlib.Path(args[3])==work/'msvc-setup.cmd'
    return super().start(args,cwd,env,**kw)
   def finish(self,terminate=False,sampler=None,seconds=3):
+   if getattr(self,'rust_cleanup_probe',False) and not terminate and self.teardown is None:
+    a,e,w,o,err=self.rust_invocation;verified=isolated_rust_cleanup(self,a,e,w,o,err,sampler);observations.append({'phase':'rust-cleanup-only','state':'PASS_VERIFIED_RUST_TELEMETRY_CLEANUP','fixture':verified['fixture']})
    if (self.setup_target or self.compiler_target) and not terminate and self.teardown is None:
     row={'phase':'rust' if self.rust_target else ('compiler' if self.compiler_target else 'setup')};observations.append(row);natural_setup_exit(self,sampler,lambda j,r:owned_image(j,r,sampler),row,seconds)
    result=super().finish(terminate,sampler,seconds)
@@ -230,7 +249,7 @@ def setup_only_main():
     report.update(state=('PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP' if any(r['ownedJobTeardown'].get('optionalCompilerCompletion') for r in guard.commands) else 'PASS_COMPILER_ONLY_NATURAL_EXIT') if compiler_only else 'PASS_SETUP_ONLY_NATURAL_EXIT',captured=captured)
    else:
     assert rust_only and captured.get('rustOutputsValidated'),'SETUP_PROBE_COMPILATION_BOUNDARY'
-    report.update(state='PASS_RUST_ONLY_NATURAL_OR_QUALIFIED_COMPLETION',stoppedBeforeCargo=True,captured=captured)
+    report.update(state='PASS_RUST_ONLY_NATURAL_OR_QUALIFIED_COMPLETION',stoppedBeforeCargo=True,captured=captured,fullBuildGatesDisabled=True,productionRustCleanupEnabled=False)
  finally:
   report.update(elapsedSeconds=time.monotonic()-start,commands=guard.commands,sampledNotQuota=True,compiledAnything=captured.get('compilerInvoked',False),captured=captured)
   if compiler_only and captured.get('compilerInvoked') and report['state'] not in ('PASS_COMPILER_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP'):
