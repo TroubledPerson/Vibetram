@@ -269,7 +269,7 @@
   },
   {
     "path": "ci/test_msvc_env.py",
-    "sha256": "90117396e717579f0e9dd8052351f927ec2c5f7cfd968b40b37a708b297fbf5c"
+    "sha256": "09fe7e7d1b871fd5a4f8d2d8139403af2851ece3215250b714e4d2abe6276f71"
   },
   {
     "path": "ci/test_msvc_pins.py",

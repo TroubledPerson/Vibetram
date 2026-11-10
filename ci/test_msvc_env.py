@@ -346,7 +346,19 @@ class CompilerOptoutRequestFile(unittest.TestCase):
   import os,uuid,json
   from msvc_env import compiler_optout_requested
   from unittest.mock import patch
-  root=pathlib.Path(os.environ['VIBETRAM_TEST_TMP'])/('event-'+uuid.uuid4().hex);root.mkdir();event=root/'event.json';event.write_text(json.dumps({'head_commit':{'message':'[unsigned-trial-191] [qualified-vctip-optout-191]'}}))
+  root=pathlib.Path(os.environ.get('VIBETRAM_TEST_TMP',os.environ.get('RUNNER_TEMP',str(pathlib.Path(__file__).parents[1]/'ci-unit-output'))))/('event-'+uuid.uuid4().hex);root.mkdir();event=root/'event.json';event.write_text(json.dumps({'head_commit':{'message':'[unsigned-trial-191] [qualified-vctip-optout-191]'}}))
   with patch.dict(os.environ,{'GITHUB_REPOSITORY':'TroubledPerson/Vibetram','GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'push','GITHUB_EVENT_PATH':str(event)}):self.assertTrue(compiler_optout_requested())
+
+#                                      
+
+
+class HostedEventTempCompatibility(unittest.TestCase):
+ def test_runner_temp_works_without_local_override(self):
+  import os
+  from unittest.mock import patch
+  parent=os.environ.get('VIBETRAM_TEST_TMP',os.environ.get('RUNNER_TEMP',str(pathlib.Path(__file__).parents[1]/'ci-unit-output')))
+  with patch.dict(os.environ,{'RUNNER_TEMP':parent}):
+   os.environ.pop('VIBETRAM_TEST_TMP',None)
+   CompilerOptoutRequestFile('test_trusted_qualified_trial_reads_only_bounded_event').test_trusted_qualified_trial_reads_only_bounded_event()
 
 if __name__=='__main__':unittest.main()
