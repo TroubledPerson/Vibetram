@@ -256,4 +256,64 @@ class CargoRuntimeIntegration(unittest.TestCase):
   import pathlib
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());self.assertIn("[unsigned-trial-191]",w["jobs"]["lock-diagnostic"]["if"]);self.assertEqual(w["jobs"]["release"]["if"],chr(36)+"{{ false }}");self.assertEqual(w["jobs"]["unsigned-qualification"]["permissions"],{"contents":"read"})
 
+
+class LeaseFailureDiagnostics(unittest.TestCase):
+ def failed(self,**kwargs):return dict({"qualified":False,"callbackInvoked":True,"callbackSucceeded":True,"state":"INTERNAL_METADATA_QUALIFICATION_STOP","reason":"METADATA_CHANGED","metadataPhase":"POST_CALLBACK_INPUT","closeFailures":0},**kwargs)
+ def test_nested_cause_saved_before_same_failure(self):
+  import json
+  from unittest.mock import patch
+  from openssl_probe import ROOT
+  from perl_overlay import require_lease
+  inner=self.failed(metadataDifferences=[{"componentIndex":4,"directory":True,"changedFields":["bytes"],"before":{"bytes":4096},"after":{"bytes":8192}}])
+  with patch("pathlib.Path.open") as opened,patch("builtins.print") as printed:
+   with self.assertRaisesRegex(AssertionError,"OVERLAY_INTERPRETER_OR_SMOKE_FAILED"):require_lease(self.failed(reason="OVERLAY_MODULE_INPUT_FAILED"),"OVERLAY_INTERPRETER_OR_SMOKE_FAILED",ROOT/"dist","overlay-interpreter",nested={"moduleInput":inner},progress={"focusedOutputMatched":True})
+  report=json.loads(opened.return_value.__enter__.return_value.write.call_args.args[0]);self.assertEqual(report["nested"]["moduleInput"]["reason"],"METADATA_CHANGED");self.assertEqual(report["nested"]["moduleInput"]["metadataDifferences"][0]["after"]["bytes"],8192);self.assertTrue(report["smokeProgress"]["focusedOutputMatched"]);opened.assert_called_once_with("x",encoding="utf-8");printed.assert_called_once()
+ def test_success_does_not_write_or_raise(self):
+  from perl_overlay import require_lease
+  from openssl_probe import ROOT
+  with patch("pathlib.Path.open") as opened,patch("builtins.print") as printed:require_lease({"qualified":True,"callbackSucceeded":True},"SYNTHETIC",ROOT/"dist","synthetic")
+  opened.assert_not_called();printed.assert_not_called()
+ def test_missing_callback_still_fails(self):
+  from perl_overlay import require_lease
+  from openssl_probe import ROOT
+  with patch("pathlib.Path.open"),patch("builtins.print"):
+   with self.assertRaisesRegex(AssertionError,"SYNTHETIC"):require_lease({"qualified":True},"SYNTHETIC",ROOT/"dist","synthetic")
+ def test_access_denial_and_close_failure_not_hidden(self):
+  from perl_overlay import sanitized_lease
+  for row in ({"state":"OS_ACCESS_DENIED_STOP","osError":5,"qualified":False},{"state":"HANDLE_CLOSE_FAILURE_STOP","closeFailures":2,"qualified":False}):self.assertEqual(sanitized_lease(row),row)
+ def test_private_text_paths_not_disclosed(self):
+  import json
+  from perl_overlay import sanitized_lease
+  d=sanitized_lease({"state":"INTERNAL_METADATA_QUALIFICATION_STOP","reason":"synthetic-private@example.invalid","input":"C:/Users/synthetic-private/file","target":"synthetic-private","qualified":False});text=json.dumps(d)
+  self.assertNotIn("synthetic-private",text);self.assertNotIn("@",text);self.assertEqual(d["reason"],"WITHHELD_NONCODE_VALUE");self.assertEqual(len(d["reasonSHA256"]),64)
+ def test_stdout_cause_survives_report_write_failure(self):
+  from perl_overlay import require_lease
+  from openssl_probe import ROOT
+  order=[]
+  def opening(*a,**k):order.append("write");raise OSError(5,"synthetic report denial")
+  with patch("pathlib.Path.open",side_effect=opening),patch("builtins.print",side_effect=lambda *a,**k:order.append("print")):
+   with self.assertRaises(OSError):require_lease(self.failed(),"SYNTHETIC",ROOT/"dist","synthetic")
+  self.assertEqual(order,["print","write"])
+ def test_invalid_scope_does_not_write(self):
+  import pathlib
+  from perl_overlay import require_lease
+  with patch("pathlib.Path.open") as opened:
+   with self.assertRaisesRegex(AssertionError,"SCOPE"):require_lease(self.failed(),"SYNTHETIC",pathlib.Path("D:/unapproved-not-created"),"synthetic")
+  opened.assert_not_called()
+ def test_malformed_report_still_fails_safely(self):
+  from perl_overlay import sanitized_lease,require_lease
+  from openssl_probe import ROOT
+  self.assertEqual(sanitized_lease(None)["state"],"UNAVAILABLE_LEASE_REPORT")
+  self.assertTrue(sanitized_lease({"metadataDifferences":None})["metadataDiagnosticsInvalid"])
+  with patch("pathlib.Path.open"),patch("builtins.print"):
+   with self.assertRaisesRegex(AssertionError,"SYNTHETIC"):require_lease(None,"SYNTHETIC",ROOT/"dist","synthetic")
+ def test_overlay_mode_returns_before_project_build(self):
+  import ast,inspect,cloud_build
+  tree=ast.parse(inspect.getsource(cloud_build.main));branches=[n for n in tree.body[0].body if isinstance(n,ast.If) and isinstance(n.test,ast.Name) and n.test.id=="overlay_probe"]
+  probe=next(n for n in branches if any(isinstance(x,ast.Return) for x in n.body));calls=[x.func.id for x in ast.walk(probe) if isinstance(x,ast.Call) and isinstance(x.func,ast.Name)];self.assertIn("overlay_only_probe",calls);self.assertNotIn("bootstrap_for_cargo",calls);self.assertNotIn("qualify_make_link",calls)
+ def test_probe_workflow_safe_entry(self):
+  import pathlib,json
+  w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());j=w["jobs"]["overlay-probe"]
+  self.assertIn("[overlay-probe-191]",j["if"]);self.assertEqual(j["permissions"],{"contents":"read"});self.assertEqual(j["steps"][3]["run"],"python -B ci/cloud_build.py --overlay-probe");self.assertIn("dist/lease-*.json",j["steps"][-1]["with"]["path"])
+
 if __name__=="__main__":unittest.main()

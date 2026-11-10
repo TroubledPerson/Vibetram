@@ -1,10 +1,10 @@
 """One monitored unsigned hosted build; no signing, release or device execution."""
-import os,pathlib,subprocess,json,hashlib,shutil,re,zipfile,struct,tomllib
+import os,pathlib,subprocess,json,hashlib,shutil,re,zipfile,struct,tomllib,sys
 from check_source import source_check
 from msvc_env import qualify_msvc
 from build_guard import Guard,clean_env,android_env,artifact,test_count,MAX_OUTPUT,MIN_FREE,MAX_SECONDS
 from openssl_probe import PHYSICAL_SDK,regular_chain
-from perl_overlay import bootstrap_for_cargo,qualify_make_link,build_android_environment
+from perl_overlay import bootstrap_for_cargo,qualify_make_link,build_android_environment,overlay_only_probe
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 WORK=ROOT/'ci-work';OUT=ROOT/'dist';GUARD=None;ENV=None
 def run(argv,cwd=ROOT,env=None,capture=False):
@@ -40,11 +40,13 @@ def notice_closure(cargo_text,lock):
  (WORK/'compiled-dependency-notice-check.json').write_text(json.dumps({'compiledExternal':list(result.values()),'uncovered':missing},indent=2),encoding='utf-8')
  assert not missing,'COMPILED_DEPENDENCY_NOTICES_REQUIRE_REVIEW'
  return list(result.values())
-def main():
+def main(overlay_probe=False):
  global GUARD,ENV
  assert os.name=='nt' and os.environ.get('GITHUB_REPOSITORY')=='TroubledPerson/Vibetram' and os.environ.get('GITHUB_REF')=='refs/heads/main'
  assert os.environ.get('GITHUB_EVENT_NAME')=='push'
- event=json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'));assert '[unsigned-trial-191]' in event['head_commit']['message']
+ event=json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
+ if overlay_probe:assert '[overlay-probe-191]' in event['head_commit']['message']
+ else:assert '[unsigned-trial-191]' in event['head_commit']['message']
  source_check(ROOT);assert not WORK.exists() and not OUT.exists(),'PRESERVE_EXISTING_PARTIALS'
  assert shutil.disk_usage(ROOT).free>=MIN_FREE+MAX_OUTPUT,'INITIAL_104_GIB_TRIAL_RESERVATION_REQUIRED'
  commit=os.environ['GITHUB_SHA'];assert re.fullmatch('[0-9a-f]{40}',commit)
@@ -57,6 +59,8 @@ def main():
  for path in ('tmp','home','profile','profile/AppData/Roaming','profile/AppData/Local','host-fixtures/tmp','host-fixtures/profile'): (WORK/path).mkdir(parents=True,exist_ok=True)
  ENV=clean_env(os.environ,WORK);GUARD=Guard(ROOT,WORK,OUT,ENV)
  ENV,msvc=qualify_msvc(ENV,WORK,GUARD);GUARD.env=ENV
+ if overlay_probe:
+  overlay_only_probe(GUARD,ENV,WORK,OUT);source_check(ROOT);return
  versions={'qualifiedMsvc':msvc}
  runtime_env,qualified_perl,openssl_source,runtime_report=bootstrap_for_cargo(GUARD,ENV,WORK,OUT)
  cross,make_report=qualify_make_link(GUARD,runtime_env,WORK,OUT,openssl_source,qualified_perl,elf_check)
@@ -137,5 +141,7 @@ def main():
  source=OUT/'Vibetram-Alpha-1.91-source.zip';run(['git','archive','--format=zip','--output',source,commit])
  report={'state':'UNSIGNED_HOSTED_BUILD_VERIFIED_NOT_A_RELEASE','commit':commit,'APK':apk.name,'APKBytes':apk.stat().st_size,'APK_SHA256':sha(apk),'sourceZip':source.name,'sourceZipSHA256':sha(source),'nativeSHA256':nh,'hostNativeSHA256':sha(hostexe),'sourceID':source_id,'lockSHA256':lock_hash,'nativeTests':suite,'javaTests':java_results,'focusedRedactionTest':redaction,'testedD8InputClasses':len(class_files),'nativeRuntimeDependencies':needed,'compiledDependenciesCovered':len(compiled_dependencies),'toolVersions':versions,'signed':False,'releasable':False,'phoneTesting':'PENDING','offlineOnly':True,'resourcesStoredAndAligned':True,'nativeFileAndLoad16KiBAligned':True,'compiledPermissions':0,'monitor':GUARD.report()}
  (OUT/'provenance.json').write_text(json.dumps(report,indent=2),encoding='utf-8');print(json.dumps(report,indent=2),flush=True)
-if __name__=='__main__':main()
+if __name__=='__main__':
+ assert sys.argv[1:] in ([],['--overlay-probe']),'UNKNOWN_BUILD_MODE'
+ main(overlay_probe=sys.argv[1:]==['--overlay-probe'])
 

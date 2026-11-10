@@ -376,6 +376,47 @@
           "run": "python -B ci/perl_overlay.py --runtime-diagnosis"
         }
       ]
+    },
+    "overlay-probe": {
+      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[overlay-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "needs": "source-checks",
+      "runs-on": "windows-latest",
+      "timeout-minutes": 20,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Provision pinned toolchain to reproduce actual build environment",
+          "timeout-minutes": 12,
+          "run": "python -B ci/provision_rust.py"
+        },
+        {
+          "name": "Require this probe VM prerequisites",
+          "run": "python -B ci/runner_preflight.py --require-qualified"
+        },
+        {
+          "name": "Actual build setup and overlay smoke only; no project build or Configure",
+          "timeout-minutes": 8,
+          "run": "python -B ci/cloud_build.py --overlay-probe"
+        },
+        {
+          "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
+          "if": "always()",
+          "with": {
+            "name": "overlay-diagnostic-${{ github.sha }}",
+            "path": "dist/lease-*.json\ndist/perl-overlay-module-smoke.json\ndist/overlay-only-result.json\nci-work/trial-progress.json\nci-work/failure-summary.json\nci-work/msvc-qualification.json\npreflight-output/*.json\nprovision-output/*.json",
+            "if-no-files-found": "warn",
+            "retention-days": 3
+          }
+        }
+      ]
     }
   }
 }

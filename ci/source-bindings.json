@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "a35a3630f3902ea400b6986ba12ef5139ea1cc7a0502ad01a73de3c9d634dfcc"
+    "sha256": "ba175239035fb20284f64347b6525493b7d9b8661a0ad33223c76cad4aa25b11"
   },
   {
     "path": ".gitignore",
@@ -177,7 +177,7 @@
   },
   {
     "path": "ci/cloud_build.py",
-    "sha256": "5bb3e135a175461fe40eb724f57d462156b9a521381ec767657ec18d212362e9"
+    "sha256": "0b02ffb5e5a832a2543a9f2d57f8ea3301fc217ca9bcb5ca16d98b9f2325e046"
   },
   {
     "path": "ci/lock_diagnostic.py",
@@ -197,7 +197,7 @@
   },
   {
     "path": "ci/ndk_input_metadata.py",
-    "sha256": "f30c65f78a0e1a9d4142b0a924aa126585d9fab08ac1a1379e64f8129528466a"
+    "sha256": "59f2b57b3a888db3e6b74a800f849ec36ffc238e54d3c88dc7db8c1c6cfaf4fc"
   },
   {
     "path": "ci/openssl_probe.py",
@@ -205,7 +205,7 @@
   },
   {
     "path": "ci/perl_overlay.py",
-    "sha256": "4bdee4cbb74363837c8ec8a99c13625c81a9a4d67fea31a69db1c42a7e8f7e32"
+    "sha256": "c26f5e694b12f2917dc165d0612fe8e06e71f101d6fbbf3a8c8559bf32b6ff2f"
   },
   {
     "path": "ci/perl_prerequisites.py",
@@ -273,7 +273,7 @@
   },
   {
     "path": "ci/test_ndk_input_metadata.py",
-    "sha256": "0b16d92218e7717e7817303d3dca9f2391e266a49581c98c576cda5392c762e9"
+    "sha256": "c0eda8e0a5a5e9c28bb137a3c8ffe61d8d62802b17dbab95db9c1770122e8aa0"
   },
   {
     "path": "ci/test_openssl_probe.py",
@@ -285,7 +285,7 @@
   },
   {
     "path": "ci/test_perl_overlay.py",
-    "sha256": "e2d5c08b682c8573397146b46c830e2f1e7799982b377984db75ad2eddf8f4c5"
+    "sha256": "56eac48e208014840477abb441221c2b82d201888572f1f7e58f133fcd99f93d"
   },
   {
     "path": "ci/test_perl_prerequisites.py",

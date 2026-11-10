@@ -78,4 +78,27 @@ class Metadata(unittest.TestCase):
   with patch("ndk_input_metadata.API",Fake):d=capture_one(pathlib.Path("C:/ndk"),pathlib.Path("C:/ndk/tool.exe"),callback=lambda:changed.__setitem__(0,True))
   self.assertFalse(d["qualified"]);self.assertEqual(d["reason"],"METADATA_CHANGED")
 
+
+class MetadataReportingOnly(unittest.TestCase):
+ @unittest.skipUnless(os.name=="nt","Windows handle metadata model")
+ def test_directory_byte_change_diagnostic_remains_fatal(self):
+  changed=[False]
+  class Fake:
+   def __init__(self):self.paths={};self.k=types.SimpleNamespace(CloseHandle=lambda h:True)
+   def open(self,p):h=len(self.paths)+1;self.paths[h]=p;return h
+   def info(self,h):
+    leaf=self.paths[h].name=="tool.exe";size=1 if leaf else (8192 if changed[0] and self.paths[h].name=="ndk" else 4096)
+    return {"identity":[7,0,h],"attributes":0x20 if leaf else 0x10,"tag":0,"bytes":size}
+  with patch("ndk_input_metadata.API",Fake):d=capture_one(pathlib.Path("C:/ndk"),pathlib.Path("C:/ndk/tool.exe"),callback=lambda:changed.__setitem__(0,True))
+  self.assertFalse(d["qualified"]);self.assertEqual(d["reason"],"METADATA_CHANGED");self.assertEqual(d["metadataPhase"],"POST_CALLBACK_INPUT");self.assertTrue(d["callbackSucceeded"]);diff=d["metadataDifferences"];self.assertEqual(len(diff),1);self.assertTrue(diff[0]["directory"]);self.assertEqual(diff[0]["changedFields"],["bytes"]);self.assertEqual(diff[0]["before"]["bytes"],4096);self.assertEqual(diff[0]["after"]["bytes"],8192)
+ @unittest.skipUnless(os.name=="nt","Windows handle metadata model")
+ def test_callback_error_class_and_phase(self):
+  class Fake:
+   def __init__(self):self.paths={};self.k=types.SimpleNamespace(CloseHandle=lambda h:True)
+   def open(self,p):h=len(self.paths)+1;self.paths[h]=p;return h
+   def info(self,h):return {"identity":[7,0,h],"attributes":0x20 if self.paths[h].name=="tool.exe" else 0x10,"tag":0,"bytes":0}
+  def callback():raise AssertionError("SYNTHETIC_CALLBACK_FAILURE")
+  with patch("ndk_input_metadata.API",Fake):d=capture_one(pathlib.Path("C:/ndk"),pathlib.Path("C:/ndk/tool.exe"),callback=callback)
+  self.assertFalse(d["qualified"]);self.assertEqual(d["errorClass"],"AssertionError");self.assertEqual(d["metadataPhase"],"CALLBACK");self.assertEqual(d["reason"],"SYNTHETIC_CALLBACK_FAILURE");self.assertFalse(d["callbackSucceeded"])
+
 if __name__=="__main__":unittest.main()

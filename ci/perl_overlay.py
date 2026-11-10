@@ -83,6 +83,51 @@ die "invalid parameter" if defined Params::Check::check(\%template,\%invalid,0);
 die "IPC functions" unless IPC::Cmd->can("run") && IPC::Cmd->can("can_run");
 print '{"state":"PASS_FOCUSED_PERL_TOOL_CHECKS","checks":5,"externalCommandsExecuted":false}',chr(10);
 '''
+
+def sanitized_lease(lease):
+ if type(lease) is not dict:return {"state":"UNAVAILABLE_LEASE_REPORT"}
+ result={}
+ for key in ("qualified","callbackInvoked","callbackSucceeded","metadataQualifiedBeforeCallback","expectedDirectory"):
+  if type(lease.get(key)) is bool:result[key]=lease[key]
+ for key in ("osError","closeFailures","bytes","elapsedMilliseconds","metadataDifferenceCount"):
+  if type(lease.get(key)) in (int,float) and 0<=lease[key]<=2**64:result[key]=lease[key]
+ for key in ("state","reason","metadataPhase"):
+  if key in lease:
+   value=str(lease[key])
+   if re.fullmatch(r"[A-Z][A-Z0-9_]{0,119}",value):result[key]=value
+   else:result[key]="WITHHELD_NONCODE_VALUE";result[key+"SHA256"]=hashlib.sha256(value.encode()).hexdigest()
+ if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}",str(lease.get("errorClass",""))):result["errorClass"]=lease["errorClass"]
+ for key in ("fileIdentity","metadataChainLengths"):
+  value=lease.get(key)
+  if type(value) is list and len(value)<=3 and all(type(x) is int and 0<=x<=2**64 for x in value):result[key]=value
+ changes=[]
+ raw_changes=lease.get("metadataDifferences",[])
+ if type(raw_changes) is not list:raw_changes=[];result["metadataDiagnosticsInvalid"]=True
+ for row in raw_changes[:8]:
+  if type(row) is not dict:continue
+  i=row.get("componentIndex");fields=row.get("changedFields")
+  if type(i) is not int or not 0<=i<24 or type(fields) is not list or not 1<=len(fields)<=4 or any(k not in ("identity","attributes","tag","bytes") for k in fields):continue
+  clean={"componentIndex":i,"directory":row.get("directory") is True,"changedFields":fields,"before":{},"after":{}}
+  for side in ("before","after"):
+   for field in fields:
+    value=row.get(side,{}).get(field)
+    if type(value) is int and 0<=value<=2**64:clean[side][field]=value
+    elif field=="identity" and type(value) is list and len(value)==3 and all(type(n) is int and 0<=n<=2**64 for n in value):clean[side][field]=value
+  changes.append(clean)
+ if changes:result["metadataDifferences"]=changes
+ return result
+
+def require_lease(lease,code,out,label,nested=None,progress=None):
+ if type(lease) is dict and lease.get("qualified") and lease.get("callbackSucceeded"):return
+ root=pathlib.Path(__file__).resolve().parents[1]
+ assert out in (root/"dist",root/"openssl-probe-output") and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}",label),"LEASE_DIAGNOSTIC_SCOPE"
+ assert re.fullmatch(r"[A-Z][A-Z0-9_]{0,79}",code),"LEASE_DIAGNOSTIC_CODE"
+ report={"state":"FAILED_LEASE_VALIDATION_UNCHANGED","wrapper":code,"lease":sanitized_lease(lease),"nested":{name:sanitized_lease(value) for name,value in (nested or {}).items() if re.fullmatch(r"[A-Za-z0-9_-]{1,40}",name)},"smokeProgress":{name:value for name,value in (progress or {}).items() if re.fullmatch(r"[A-Za-z0-9_-]{1,40}",name) and type(value) is bool}}
+ text=json.dumps(report,indent=2)+"\n";assert len(text.encode())<=16384,"LEASE_DIAGNOSTIC_BOUND"
+ print("LEASE_FAILURE_DIAGNOSTIC "+json.dumps(report),flush=True) # Keep cause in job logs even if saving the report fails.
+ with (out/("lease-"+label+".json")).open("x",encoding="utf-8") as f:f.write(text)
+ raise AssertionError(code)
+
 def repair_git_perl(guard,env,work,out,src,original):
  from ndk_input_metadata import capture_one
  row=next((x for x in original["candidates"] if x["installation"]=="Git for Windows"),None)
@@ -92,17 +137,20 @@ def repair_git_perl(guard,env,work,out,src,original):
  assert all(row["modules"].get(m,{}).get("loaded") for m in ("base","Exporter","strict")),"CORE_OVERLAY_DEPENDENCY_MISSING"
  guard.run([sys.executable,"-B",__file__,"--prepare",str(work),str(out)],env=env,timeout=60)
  perl=pathlib.Path(row["path"]);resolver=work/"perl-overlay-path.pl";resolver.write_text(resolver_program(),encoding="ascii")
- modules,_=module_set(src);results={};next_env=env.copy()
+ modules,_=module_set(src);results={};next_env=env.copy();progress={}
  def callback():
   assert hashlib.sha256(perl.read_bytes()).hexdigest()==GIT_PERL_SHA,"PERL_BINARY_CHANGED"
+  progress["interpreterHashVerified"]=True
   posix=parse_overlay_path(guard.run([perl,resolver],cwd=work,env=env,capture=True,timeout=15).stdout)
-  next_env["PERL5LIB"]=posix
+  next_env["PERL5LIB"]=posix;progress["resolverPassed"]=True
   script=work/"perl-overlay-required.pl";script.write_text(program(modules),encoding="ascii")
   loaded=parse(guard.run([perl,script],cwd=src,env=next_env,capture=True,timeout=25).stdout,modules)
   assert loaded["complete"] and loaded["modules"]["Locale::Maketext::Simple"]["version"]=="0.21","OVERLAY_MODULE_SMOKE_FAILED"
+  progress["moduleBatchPassed"]=True
   smoke=work/"perl-overlay-focused.pl";smoke.write_text(focused_program(),encoding="ascii")
   focused=json.loads(guard.run([perl,smoke],cwd=src,env=next_env,capture=True,timeout=25).stdout)
   assert focused=={"state":"PASS_FOCUSED_PERL_TOOL_CHECKS","checks":5,"externalCommandsExecuted":False},"OVERLAY_FOCUSED_TESTS_FAILED"
+  progress["focusedOutputMatched"]=True
   results.update(loaded);results["focused"]=focused
  module=work/"perl-overlay/lib/Locale/Maketext/Simple.pm"
  def module_callback():
@@ -110,9 +158,9 @@ def repair_git_perl(guard,env,work,out,src,original):
   callback()
  def interpreter_callback():
   results["moduleInputLease"]=capture_one(work/"perl-overlay",module,callback=module_callback)
-  assert results["moduleInputLease"]["qualified"] and results["moduleInputLease"].get("callbackSucceeded"),"OVERLAY_MODULE_INPUT_FAILED"
+  require_lease(results["moduleInputLease"],"OVERLAY_MODULE_INPUT_FAILED",out,"overlay-module",progress=progress)
  lease=capture_one(perl.parent,perl,callback=interpreter_callback)
- assert lease["qualified"] and lease.get("callbackSucceeded"),"OVERLAY_INTERPRETER_OR_SMOKE_FAILED"
+ require_lease(lease,"OVERLAY_INTERPRETER_OR_SMOKE_FAILED",out,"overlay-interpreter",nested={"moduleInput":results.get("moduleInputLease",{})},progress=progress)
  selected={**row,**results,"complete":True,"overlayUsed":True}
  report={"state":"PASS_JOB_ONLY_PERL_OVERLAY_SMOKE","archiveSHA256":ARCHIVE_SHA,"moduleSHA256":MODULE_SHA,"interpreterSHA256":GIT_PERL_SHA,"requiredModuleCount":len(modules),"modules":results["modules"],"focused":results["focused"],"moduleInputLease":results["moduleInputLease"],"moduleCodeExecutedForSmoke":True,"moduleCodeUnmodified":True,"systemInstallationChanged":False,"childOnlyPERL5LIB":True,"inputLease":lease}
  (out/"perl-overlay-module-smoke.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8");print(json.dumps(report,indent=2),flush=True)
@@ -407,7 +455,7 @@ def qualify_make_link(guard,env,work,out,src,perl,elf_validator):
   paths=((ndk,make),(shell.parent,shell),(ndk,lld),(ndk,readelf))
   if i==len(paths):execute();return
   root,tool=paths[i];lease=capture_one(root,tool,callback=lambda:step(i+1));leases[tool.name]=lease
-  assert lease["qualified"] and lease.get("callbackSucceeded"),"INSTALLED_MAKE_LINK_INPUT_OR_PROBE_FAILED"
+  require_lease(lease,"INSTALLED_MAKE_LINK_INPUT_OR_PROBE_FAILED",out,"make-link-"+tool.name)
  try:step(0)
  finally:
   text=json.dumps({"result":results,"inputLeases":leases},indent=2)+"\n";(out/"make-link-qualification.json").write_text(text,encoding="utf-8");print(text,flush=True)
@@ -546,7 +594,7 @@ def qualify_prepared_runtime(guard,env,work,out,src,configure=True):
    assert results["state"]=="PASS_ACTUAL_COMPILER_DISCOVERY_HELPERS" and results["checks"]==10 and results["makeMakerVersion"]=="7.76","RUNTIME_ACTUAL_HELPERS_FAILED"
    if configure:configuration.update(configure_with_runtime(guard,env,work,out,src,perl,ndk,tools))
   lease=capture_one(perl.parent,perl,callback=run_helpers)
-  assert lease["qualified"] and lease.get("callbackSucceeded"),"RUNTIME_INTERPRETER_LEASE"
+  require_lease(lease,"RUNTIME_INTERPRETER_LEASE",out,"runtime-interpreter")
  with_physical_ndk_inputs(guard,env,out,actual)
  report={"state":"PASS_RUNTIME_CONFIGURE_ONLY" if configure else "PASS_RUNTIME_DEPENDENCY_AND_HELPER_QUALIFICATION","packages":plan["packages"],"missingProviderCount":len(missing),"preservedInstalledProviderCount":len(providers)-len(missing),"requiredModuleCount":len(required),"moduleClosure":closure["modules"],"helperTests":results,"podRuntime":pod_result,"sourceCatalogue":catalogue,"configureExecuted":configure,"compilationRequested":False,"compilerVersionQueriesAllowed":configure,"configuration":configuration,"globalInstallationChanged":False,"limits":"Active Cygwin compiler-discovery helpers and declared runtime prerequisites; not every MakeMaker API or future configure/make/build path","monitor":guard.report()}
  text=json.dumps(report,indent=2)+"\n";assert len(text.encode())<65536
@@ -554,13 +602,26 @@ def qualify_prepared_runtime(guard,env,work,out,src,configure=True):
 
  return selected,env,report
 
-def bootstrap_for_cargo(guard,env,work,out):
+def prepare_cargo_runtime_source(guard,env,work,out):
  from openssl_probe import ROOT,PREFIX
  assert owned_pair(ROOT,work,out) and work==ROOT/"ci-work","CARGO_RUNTIME_OWNED_SCOPE"
  assert env.get("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"),"QUALIFIED_HOST_LINKER_REQUIRED"
  prepared=env.copy();prepared["VIBETRAM_OPENSSL_CARGO_BRIDGE"]="1"
  guard.run([sys.executable,"-B",ROOT/"ci/openssl_probe.py","--materialize",work],env=prepared,timeout=180)
- src=work/"crate"/PREFIX/"openssl"
+ return prepared,work/"crate"/PREFIX/"openssl"
+
+def overlay_only_probe(guard,env,work,out):
+ from perl_prerequisites import inventory
+ prepared,src=prepare_cargo_runtime_source(guard,env,work,out)
+ _,original=inventory(guard,prepared,work,out,src)
+ selected,_,smoke=repair_git_perl(guard,prepared,work,out,src,original)
+ report={"state":"PASS_OVERLAY_ONLY_ACTUAL_BUILD_ENVIRONMENT","PerlVersion":selected["metadata"]["version"],"interpreterSHA256":selected["sha256"],"moduleSHA256":MODULE_SHA,"requiredModuleCount":smoke["requiredModuleCount"],"focused":smoke["focused"],"validationRelaxed":False,"ConfigureExecuted":False,"makeExecuted":False,"projectCompiled":False,"monitor":guard.report()}
+ text=json.dumps(report,indent=2)+"\n";assert len(text.encode())<32768
+ (out/"overlay-only-result.json").write_text(text,encoding="utf-8");print(text,flush=True)
+ return report
+
+def bootstrap_for_cargo(guard,env,work,out):
+ prepared,src=prepare_cargo_runtime_source(guard,env,work,out)
  selected,prepared,report=qualify_prepared_runtime(guard,prepared,work,out,src,configure=True)
  assert report["state"]=="PASS_RUNTIME_CONFIGURE_ONLY","CARGO_RUNTIME_PREFLIGHT_FAILED"
  return prepared,pathlib.Path(selected["path"]),src,report
