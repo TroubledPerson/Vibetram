@@ -418,17 +418,71 @@ def build_android_environment(env,ndk,tools,perl):
  cross.update(CC_aarch64_linux_android="clang.exe",CXX_aarch64_linux_android="clang++.exe",AR_aarch64_linux_android="llvm-ar.exe",RANLIB_aarch64_linux_android="llvm-ranlib.exe",SHELL=(perl.parent/"sh.exe").as_posix(),MAKEFLAGS="-j1")
  return cross
 
-def tiny_makefile(posix):
- assert re.fullmatch(r"/[A-Za-z0-9_./+-]+/ci-work/tool-smoke",posix) and ".." not in pathlib.PurePosixPath(posix).parts,"SMOKE_OUTPUT_SCOPE"
- return "VIBETRAM_SMOKE_DIR="+posix+r'''
+def tiny_makefile(native):
+ # Windows-native consumers receive mixed D:/ paths, never Cygwin /d paths.
+ # See https://cygwin.com/cygwin-ug-net/cygpath.html (-m for shell-safe slashes).
+ assert re.fullmatch(r"[A-Za-z]:/[A-Za-z0-9_./+ -]+/ci-work/tool-smoke space",native) and not any(x in (".","..") for x in native.split("/")),"SMOKE_OUTPUT_SCOPE"
+ return "VIBETRAM_SMOKE_DIR="+native+r'''
 .PHONY: VIBETRAM_TOOLCHAIN_SMOKE
 VIBETRAM_TOOLCHAIN_SMOKE:
-	@$(PERL) -e 'print "PASS_GENERATED_MAKE_PERL\\n"'
-	$(CC) --target=aarch64-linux-android29 -fPIC -c $(VIBETRAM_SMOKE_DIR)/probe.c -o $(VIBETRAM_SMOKE_DIR)/probe.o
-	$(AR) crs $(VIBETRAM_SMOKE_DIR)/probe.a $(VIBETRAM_SMOKE_DIR)/probe.o
-	$(RANLIB) $(VIBETRAM_SMOKE_DIR)/probe.a
-	$(CC) --target=aarch64-linux-android29 -shared -fPIC -Wl,-z,max-page-size=16384 $(VIBETRAM_SMOKE_DIR)/probe.o -o $(VIBETRAM_SMOKE_DIR)/probe.so
+	@$(PERL) -e 'print "PASS_GENERATED_MAKE_PERL\n"'
+	$(CC) --target=aarch64-linux-android29 -fPIC -c "$(VIBETRAM_SMOKE_DIR)/probe source.c" -o "$(VIBETRAM_SMOKE_DIR)/probe object.o"
+	$(AR) crs "$(VIBETRAM_SMOKE_DIR)/probe archive.a" "$(VIBETRAM_SMOKE_DIR)/probe object.o"
+	$(RANLIB) "$(VIBETRAM_SMOKE_DIR)/probe archive.a"
+	$(CC) --target=aarch64-linux-android29 -shared -fPIC -Wl,-z,max-page-size=16384 "$(VIBETRAM_SMOKE_DIR)/probe object.o" -o "$(VIBETRAM_SMOKE_DIR)/probe native.so"
 '''
+
+def native_path_conversion_program():
+ return r'''use strict;use warnings;use JSON::PP;
+die "one path required" unless @ARGV==1;
+my $posix=Cygwin::win_to_posix_path($ARGV[0],1);
+my $native=Cygwin::posix_to_win_path($posix,1);$native=~s{\\}{/}g;
+my @a=stat($ARGV[0]);my @b=stat($posix);my @c=stat($native);
+die "conversion identity changed" unless @a && @b && @c && $a[0]==$b[0] && $a[1]==$b[1] && $a[0]==$c[0] && $a[1]==$c[1];
+print JSON::PP::encode_json({posix=>$posix,native=>$native,identityChecks=>2}),chr(10);
+'''
+
+def validate_native_conversion(row,smoke):
+ assert type(row) is dict and set(row)=={"posix","native","identityChecks"} and row["identityChecks"]==2,"SMOKE_CONVERSION_SCHEMA"
+ native=smoke.as_posix();tiny_makefile(native)
+ assert row["native"]==native and isinstance(row["posix"],str) and re.fullmatch(r"/[A-Za-z0-9_./+ -]+/ci-work/tool-smoke space",row["posix"]) and not any(x in (".","..") for x in row["posix"].split("/")),"SMOKE_CONVERSION_SCOPE"
+ return native
+
+def validate_openssl_recipe(output):
+ import shlex
+ # Review the actual generated recipe before executing only this object target.
+ lines=[line.strip() for line in output.splitlines() if re.match(r"^clang\.exe\s",line.strip())]
+ assert len(lines)==1,"REPRESENTATIVE_COMPILER_COUNT"
+ args=shlex.split(lines[0],posix=True)
+ assert args[0]=="clang.exe" and args.count("-c")==1 and args.count("-o")==1 and args[args.index("-o")+1]=="crypto/libcrypto-lib-ctype.o" and args[-1]=="crypto/ctype.c","REPRESENTATIVE_RECIPE_IDENTITY"
+ assert "--target=aarch64-linux-android29" in args and not any(x.startswith("/") or x.startswith("-I/") for x in args),"REPRESENTATIVE_NATIVE_PATH_OR_TARGET"
+ # These three -D values are embedded Android installation-directory strings,
+ # not native compiler file operands; preserve their upstream POSIX spelling.
+ assert all(re.fullmatch(r"[A-Za-z0-9_./=,+:-]+",x) or re.fullmatch(r'-D(?:OPENSSLDIR|ENGINESDIR|MODULESDIR)="/[A-Za-z0-9_./+-]+"',x) for x in args),"REPRESENTATIVE_UNEXPECTED_SHELL_SYNTAX"
+ return args
+
+def smoke_artifact_identity(path):
+ import stat
+ before=path.lstat()
+ assert stat.S_ISREG(before.st_mode) and not getattr(before,"st_file_attributes",0)&0x400,"SMOKE_ARTIFACT_NOT_REGULAR"
+ data=path.read_bytes();after=path.lstat()
+ fields=("st_dev","st_ino","st_mode","st_size","st_mtime_ns","st_ctime_ns","st_file_attributes")
+ assert all(getattr(before,k,None)==getattr(after,k,None) for k in fields) and len(data)==before.st_size,"SMOKE_ARTIFACT_CHANGED"
+ return {"identity":[before.st_dev,before.st_ino],"bytes":len(data),"sha256":hashlib.sha256(data).hexdigest(),"regularNoFollowMetadata":True}
+
+def representative_openssl_recipe(guard,cross,src,make):
+ target="crypto/libcrypto-lib-ctype.o";source=src/"crypto/ctype.c";native=src/target
+ assert source.is_file() and not native.exists(),"REPRESENTATIVE_SOURCE_OR_EXISTING_OUTPUT"
+ source_hash=hashlib.sha256(source.read_bytes()).hexdigest();make_hash=hashlib.sha256((src/"Makefile").read_bytes()).hexdigest()
+ # Header generation is a real generated Perl recipe, not a replacement header.
+ guard.run([make,"-f","Makefile","-j1","include/openssl/opensslv.h"],cwd=src,env=cross,capture=True,timeout=60)
+ dry=guard.run([make,"-f","Makefile","--dry-run","-j1",target],cwd=src,env=cross,capture=True,timeout=30)
+ args=validate_openssl_recipe(dry.stdout)
+ completed=guard.run([make,"-f","Makefile","-j1",target],cwd=src,env=cross,capture=True,timeout=90)
+ assert args==validate_openssl_recipe(completed.stdout),"REPRESENTATIVE_RECIPE_CHANGED"
+ data=native.read_bytes();assert len(data)>=64 and data[:6]==b"\x7fELF\x02\x01" and int.from_bytes(data[16:18],"little")==1 and int.from_bytes(data[18:20],"little")==183,"REPRESENTATIVE_EXPECTED_ARM64_OBJECT"
+ assert hashlib.sha256(source.read_bytes()).hexdigest()==source_hash and hashlib.sha256((src/"Makefile").read_bytes()).hexdigest()==make_hash,"REPRESENTATIVE_INPUT_CHANGED"
+ return {"state":"PASS_ACTUAL_GENERATED_OPENSSL_OBJECT_RECIPE","target":target,"sourceSHA256":source_hash,"generatedMakefileSHA256":make_hash,"compilerArgv":args,"objectBytes":len(data),"objectSHA256":hashlib.sha256(data).hexdigest(),"ELF64":True,"machine":"AArch64","type":"REL","sourceAndRecipeUnchanged":True,"fixtureExecuted":False,"otherOpenSSLObjectsRequested":False,"sourceIdentity":smoke_artifact_identity(source),"objectIdentity":smoke_artifact_identity(native)}
 
 def qualify_make_link(guard,env,work,out,src,perl,elf_validator):
  from openssl_probe import PHYSICAL_SDK
@@ -442,15 +496,22 @@ def qualify_make_link(guard,env,work,out,src,perl,elf_validator):
   linker=env.get("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER");assert linker and pathlib.Path(shutil.which("link.exe",path=cross["PATH"]) or "")==pathlib.Path(linker),"HOST_LINKER_PATH_COLLISION"
   versions={name:guard.run([tool,"--version"],env=cross,capture=True,timeout=30).stdout.strip()[:2048] for name,tool in (("make",make),("shell",shell),("lld",lld))}
   assert versions["make"].startswith("GNU Make ") and "GNU bash" in versions["shell"] and "LLD" in versions["lld"],"UNEXPECTED_BUILD_TOOL_VERSION"
-  smoke=work/"tool-smoke";smoke.mkdir();(smoke/"probe.c").write_text("int vibetram_offline_link_probe(void) { return 7; }\n",encoding="ascii")
-  converter=work/"smoke-posix.pl";converter.write_text('print Cygwin::win_to_posix_path($ARGV[0],1),chr(10);',encoding="ascii")
-  posix=guard.run([perl,converter,smoke],env=cross,capture=True,timeout=15).stdout.strip();recipe=smoke/"smoke.mk";recipe.write_text(tiny_makefile(posix),encoding="ascii")
+  smoke=work/"tool-smoke space";smoke.mkdir();(smoke/"probe source.c").write_text("int vibetram_offline_link_probe(void) { return 7; }\n",encoding="ascii")
+  source_hash=hashlib.sha256((smoke/"probe source.c").read_bytes()).hexdigest()
+  converter=work/"smoke-paths.pl";converter.write_text(native_path_conversion_program(),encoding="ascii")
+  conversion=json.loads(guard.run([perl,converter,smoke],env=cross,capture=True,timeout=15).stdout)
+  native_dir=validate_native_conversion(conversion,smoke);recipe=smoke/"smoke.mk";recipe.write_text(tiny_makefile(native_dir),encoding="ascii")
   result=guard.run([make,"-f","Makefile","-f",recipe,"-j1","VIBETRAM_TOOLCHAIN_SMOKE"],cwd=src,env=cross,capture=True,timeout=90)
   assert "PASS_GENERATED_MAKE_PERL" in result.stdout,"GENERATED_MAKE_PERL_PATH_FAILED"
-  native=smoke/"probe.so";assert native.is_file(),"TINY_ANDROID_LINK_MISSING";elf_validator(native.read_bytes())
+  native=smoke/"probe native.so";assert native.is_file(),"TINY_ANDROID_LINK_MISSING";elf_validator(native.read_bytes())
   dynamic=guard.run([readelf,"-d",native],env=cross,capture=True,timeout=20).stdout
   needed=re.findall(r"\(NEEDED\).*\[([^\]]+)\]",dynamic);assert all(x in ("libc.so","libdl.so","libm.so","liblog.so","libandroid.so") for x in needed),"SMOKE_RUNTIME_DEPENDENCY"
-  results.update(state="PASS_INSTALLED_MAKE_SHELL_ANDROID_ARCHIVE_LINK",tools={name:{"path":str(tool),"sha256":hashlib.sha256(tool.read_bytes()).hexdigest()} for name,tool in (("make",make),("shell",shell),("lld",lld))},versions=versions,nativeSHA256=hashlib.sha256(native.read_bytes()).hexdigest(),needed=needed,elf16KiBAligned=True,fixtureExecuted=False,makeWorkers=1,hostLinkerPreserved=True)
+  assert hashlib.sha256((smoke/"probe source.c").read_bytes()).hexdigest()==source_hash,"SMOKE_SOURCE_CHANGED"
+  obj=(smoke/"probe object.o").read_bytes();assert obj[:6]==b"\x7fELF\x02\x01" and int.from_bytes(obj[16:18],"little")==1 and int.from_bytes(obj[18:20],"little")==183,"SMOKE_OBJECT_TARGET"
+  archive=smoke/"probe archive.a";assert archive.read_bytes().startswith(b"!<arch>\n"),"SMOKE_ARCHIVE_FORMAT"
+  members=guard.run([tools/"llvm-ar.exe","t",archive],env=cross,capture=True,timeout=20).stdout.splitlines();assert members==["probe object.o"],"SMOKE_ARCHIVE_MEMBER"
+  representative=representative_openssl_recipe(guard,cross,src,make)
+  results.update(state="PASS_INSTALLED_MAKE_SHELL_ANDROID_ARCHIVE_LINK",tools={name:{"path":str(tool),"sha256":hashlib.sha256(tool.read_bytes()).hexdigest()} for name,tool in (("make",make),("shell",shell),("lld",lld))},versions=versions,nativeSHA256=hashlib.sha256(native.read_bytes()).hexdigest(),needed=needed,elf16KiBAligned=True,fixtureExecuted=False,makeWorkers=1,hostLinkerPreserved=True,sourceSHA256=source_hash,pathConversion=conversion,quotedNativePathsWithSpaces=True,objectSHA256=hashlib.sha256(obj).hexdigest(),archiveSHA256=hashlib.sha256(archive.read_bytes()).hexdigest(),representativeOpenSSL=representative,artifacts={name:smoke_artifact_identity(smoke/name) for name in ("probe source.c","probe object.o","probe archive.a","probe native.so")})
  def step(i):
   paths=((ndk,make),(shell.parent,shell),(ndk,lld),(ndk,readelf))
   if i==len(paths):execute();return

@@ -219,7 +219,7 @@ class CargoRuntimeIntegration(unittest.TestCase):
   self.assertLess(parts.index(str(link.parent)),parts.index(str(perl.parent)));self.assertEqual(parts[0],str(ndk/"prebuilt/windows-x86_64/bin"));self.assertEqual(out["CC_aarch64_linux_android"],"clang.exe");self.assertEqual(out["PERL"],"perl.exe");self.assertEqual(out["MAKEFLAGS"],"-j1");self.assertEqual(env["PATH"],"original");self.assertEqual(out["PERL5OPT"],env["PERL5OPT"])
  def test_tiny_recipe_actual_tabs_and_no_execution(self):
   from perl_overlay import tiny_makefile
-  s=tiny_makefile("/d/a/Vibetram/Vibetram/ci-work/tool-smoke")
+  s=tiny_makefile("D:/a/Vibetram/Vibetram/ci-work/tool-smoke space")
   commands=[x for x in s.splitlines() if x.startswith("\t")];self.assertEqual(len(commands),5);self.assertIn("--target=aarch64-linux-android29 -shared",s);self.assertIn("$(AR) crs",s);self.assertNotIn("./probe.so",s)
  def test_tiny_output_scope(self):
   from perl_overlay import tiny_makefile
@@ -314,7 +314,7 @@ class LeaseFailureDiagnostics(unittest.TestCase):
  def test_probe_workflow_safe_entry(self):
   import pathlib,json
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());j=w["jobs"]["overlay-probe"]
-  self.assertIn("[overlay-probe-191]",j["if"]);self.assertEqual(j["permissions"],{"contents":"read"});self.assertEqual(j["steps"][3]["run"],"python -B ci/cloud_build.py --configure-probe");self.assertIn("dist/lease-*.json",j["steps"][-1]["with"]["path"])
+  self.assertIn("[overlay-probe-191]",j["if"]);self.assertEqual(j["permissions"],{"contents":"read"});self.assertEqual(j["steps"][3]["run"],"python -B ci/cloud_build.py --make-probe");self.assertIn("dist/lease-*.json",j["steps"][-1]["with"]["path"])
 
 class ConfigureProbeEntry(unittest.TestCase):
  def test_configure_returns_before_make_and_cargo(self):
@@ -329,5 +329,60 @@ class ConfigureProbeEntry(unittest.TestCase):
   tree=ast.parse(inspect.getsource(perl_overlay));calls=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=="capture_one" and any(k.arg=="mutable_ci_work" for k in n.keywords)]
   self.assertEqual(len(calls),1);self.assertEqual(calls[0].args[1].id,"module")
   expr=next(k.value for k in calls[0].keywords if k.arg=="mutable_ci_work");self.assertIsInstance(expr,ast.Compare);self.assertEqual(expr.left.id,"work");self.assertIn("ci-work",ast.unparse(expr))
+
+class NativeArgumentBoundary(unittest.TestCase):
+ def test_native_quoted_space_operands(self):
+  from perl_overlay import tiny_makefile
+  recipe=tiny_makefile("D:/a/Vibetram/Vibetram/ci-work/tool-smoke space")
+  for name in ("probe source.c","probe object.o","probe archive.a","probe native.so"):self.assertIn('"$(VIBETRAM_SMOKE_DIR)/'+name+'"',recipe)
+  self.assertNotIn("/d/a/",recipe);self.assertEqual(len([x for x in recipe.splitlines() if x.startswith("\t")]),5)
+ def test_native_scope_injection_and_posix_rejected(self):
+  from perl_overlay import tiny_makefile
+  for value in ["/d/a/Vibetram/ci-work/tool-smoke space","D:/a/../ci-work/tool-smoke space","D:/a/./ci-work/tool-smoke space","D:/a/$x/ci-work/tool-smoke space",'D:/a/"x"/ci-work/tool-smoke space',"D:/a/ci-work/other","D:/a/ci-work/tool-smoke space;exit"]:
+   with self.subTest(value=value),self.assertRaises(AssertionError):tiny_makefile(value)
+ def test_roundtrip_schema_exact_path_and_identities(self):
+  import pathlib
+  from perl_overlay import validate_native_conversion
+  p=pathlib.Path("D:/a/Vibetram/ci-work/tool-smoke space");native=p.as_posix();row={"native":native,"posix":"/d/a/Vibetram/ci-work/tool-smoke space","identityChecks":2};self.assertEqual(validate_native_conversion(row,p),native)
+  for patcher in ({"native":"D:/other/ci-work/tool-smoke space"},{"posix":"/d/a/../ci-work/tool-smoke space"},{"identityChecks":1},{"unknown":"x"}):
+   with self.subTest(patcher=patcher),self.assertRaises(AssertionError):validate_native_conversion({**row,**patcher},p)
+ def recipe(self):return 'clang.exe -I. -Iinclude -fPIC --target=aarch64-linux-android29 -DOPENSSLDIR=\"\\\"/usr/local/ssl\\\"\" -MMD -MF crypto/libcrypto-lib-ctype.d.tmp -c -o crypto/libcrypto-lib-ctype.o crypto/ctype.c'
+ def test_actual_recipe_relative_paths_and_directory_macros(self):
+  from perl_overlay import validate_openssl_recipe
+  args=validate_openssl_recipe(self.recipe());self.assertIn('-DOPENSSLDIR="/usr/local/ssl"',args);self.assertEqual(args[-1],"crypto/ctype.c")
+ def test_recipe_wrong_source_output_target_or_extra_compiler_fatal(self):
+  from perl_overlay import validate_openssl_recipe
+  recipe=self.recipe()
+  for changed in [recipe.replace("crypto/ctype.c","/d/a/crypto/ctype.c"),recipe.replace("crypto/libcrypto-lib-ctype.o","elsewhere.o"),recipe.replace("android29","android28"),recipe+"\n"+recipe,recipe+";touch forbidden",recipe.replace("-Iinclude","-I/d/include")]:
+   with self.subTest(changed=changed),self.assertRaises(AssertionError):validate_openssl_recipe(changed)
+ def test_conversion_real_helpers_and_identity_comparison(self):
+  from perl_overlay import native_path_conversion_program
+  s=native_path_conversion_program();self.assertIn("Cygwin::posix_to_win_path",s);self.assertIn("Cygwin::win_to_posix_path",s);self.assertIn("$a[1]==$c[1]",s);self.assertNotIn("system(",s)
+ def test_probe_returns_after_tiny_qualification_before_cargo(self):
+  import ast,inspect,cloud_build
+  t=ast.parse(inspect.getsource(cloud_build.main));b=next(n for n in t.body[0].body if isinstance(n,ast.If) and isinstance(n.test,ast.Name) and n.test.id=="make_probe")
+  self.assertTrue(any(isinstance(n,ast.Return) for n in b.body));calls=[n for n in ast.walk(t) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)]
+  make=next(n for n in calls if n.func.id=="qualify_make_link");cargo=[n for n in calls if n.func.id=="run" and "cargo" in ast.unparse(n)]
+  self.assertLess(make.lineno,b.lineno);self.assertTrue(all(n.lineno>b.lineno for n in cargo))
+
+class SmokeArtifactIdentity(unittest.TestCase):
+ def row(self,**kw):
+  import types,stat
+  return types.SimpleNamespace(**{**dict(st_dev=7,st_ino=10,st_mode=stat.S_IFREG,st_size=3,st_mtime_ns=1,st_ctime_ns=1,st_file_attributes=0),**kw})
+ def test_fresh_regular_identity_and_hash(self):
+  from unittest.mock import Mock
+  from perl_overlay import smoke_artifact_identity
+  p=Mock();p.lstat.return_value=self.row();p.read_bytes.return_value=b"abc";r=smoke_artifact_identity(p);self.assertEqual(r["identity"],[7,10]);self.assertEqual(r["sha256"],hashlib.sha256(b"abc").hexdigest())
+ def test_reparse_and_replacement_and_mutation_fatal(self):
+  from unittest.mock import Mock
+  from perl_overlay import smoke_artifact_identity
+  for row in (self.row(st_ino=11),self.row(st_size=4),self.row(st_file_attributes=0x400),self.row(st_mtime_ns=2)):
+   p=Mock();p.lstat.side_effect=[self.row(),row];p.read_bytes.return_value=b"abc"
+   with self.assertRaises(AssertionError):smoke_artifact_identity(p)
+ def test_denial_not_zeroed(self):
+  from unittest.mock import Mock
+  from perl_overlay import smoke_artifact_identity
+  p=Mock();p.lstat.side_effect=OSError(5,"synthetic")
+  with self.assertRaises(OSError):smoke_artifact_identity(p)
 
 if __name__=="__main__":unittest.main()
