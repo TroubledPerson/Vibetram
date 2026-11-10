@@ -193,7 +193,7 @@
   },
   {
     "path": "ci/msvc_probe.py",
-    "sha256": "1b71f161f1c420e1239baeb751543d36451191ffd32ed87215957c726ca39a0c"
+    "sha256": "b1c510d576b2a88b95bac6c024e40a36eb518eedeecd9487691a3e64ee7b9695"
   },
   {
     "path": "ci/ndk_input_metadata.py",
@@ -269,7 +269,7 @@
   },
   {
     "path": "ci/test_msvc_env.py",
-    "sha256": "f48c10623fff3a8e553919a81f1196469e1ff96487f2ac423ca0e3814f26975a"
+    "sha256": "520278deac3891afeddeb3ba6cb01e11d0a45e9dba01938c243b1b57092e821a"
   },
   {
     "path": "ci/test_msvc_pins.py",

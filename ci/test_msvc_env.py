@@ -245,4 +245,60 @@ class ProductionOptionalSetupIntegration(unittest.TestCase):
    with self.assertRaisesRegex(StopSetup,'SYNTHETIC_SETUP_BOUNDARY'):msvc_env.qualify_msvc(base,root,Guard())
   self.assertEqual(spy.call_count,1);self.assertEqual(len(captured),1);self.assertEqual(captured[0]['VSCMD_SKIP_SENDTELEMETRY'],'1');self.assertNotIn('VSCMD_SKIP_SENDTELEMETRY',base);self.assertNotIn('VSCMD_SKIP_SENDTELEMETRY',helperInputs[0]);self.assertEqual(captured[0]['PATH'],base['PATH']);self.assertEqual(captured[0]['SystemRoot'],base['SystemRoot'])
 
+
+
+
+class CompilerCompletionProbe(unittest.TestCase):
+ def files(self):
+  import os,uuid,struct
+  root=pathlib.Path(os.environ.get('VIBETRAM_TEST_TMP',os.environ.get('RUNNER_TEMP',str(pathlib.Path(__file__).parents[1]/'ci-unit-output'))))/('compiler-output-'+uuid.uuid4().hex);root.mkdir(parents=True)
+  obj=bytearray(64);struct.pack_into('<HHIIIHH',obj,0,0x8664,1,0,0,0,0,0);struct.pack_into('<II',obj,36,4,60)
+  exe=bytearray(256);exe[:2]=b'MZ';struct.pack_into('<I',exe,60,64);exe[64:68]=b'PE'+bytes(2);struct.pack_into('<HH',exe,68,0x8664,1);struct.pack_into('<H',exe,84,112);struct.pack_into('<H',exe,88,0x20b);struct.pack_into('<II',exe,216,16,240)
+  (root/'tiny-sdk.obj').write_bytes(obj);(root/'tiny-sdk.exe').write_bytes(exe);proof={'processTreeExitIndependentlyVerified':True,'activeMembers':0,'knownHandlesExited':True};return root,proof
+ def test_closed_outputs_validate_x64_headers_sections_and_hashes(self):
+  from msvc_probe import closed_compiler_outputs
+  root,proof=self.files();rows=closed_compiler_outputs(root,proof);self.assertEqual(len(rows),2);self.assertTrue(rows[0]['x64COFFSectionBoundsValidated']);self.assertTrue(rows[1]['x64PESectionBoundsValidated']);self.assertTrue(all(len(r['sha256'])==64 and r['closedOwnedWritersVerified'] for r in rows))
+ def test_active_unknown_or_unexited_writers_are_never_accepted(self):
+  from msvc_probe import closed_compiler_outputs
+  root,proof=self.files()
+  for patcher in ({'activeMembers':1},{'processTreeExitIndependentlyVerified':False},{'knownHandlesExited':False}):
+   with self.assertRaisesRegex(AssertionError,'WRITERS_UNVERIFIED'):closed_compiler_outputs(root,{**proof,**patcher})
+ def test_truncated_pe_and_coff_fail(self):
+  from msvc_probe import closed_compiler_outputs
+  for name in ('tiny-sdk.obj','tiny-sdk.exe'):
+   root,proof=self.files();(root/name).write_bytes((root/name).read_bytes()[:30])
+   with self.assertRaises(AssertionError):closed_compiler_outputs(root,proof)
+ def test_out_of_bounds_sections_are_rejected(self):
+  from msvc_probe import closed_compiler_outputs
+  import struct
+  for name,offset in [('tiny-sdk.obj',36),('tiny-sdk.exe',216)]:
+   root,proof=self.files();data=bytearray((root/name).read_bytes());struct.pack_into('<II',data,offset,1000,2000);(root/name).write_bytes(data)
+   with self.assertRaises(AssertionError):closed_compiler_outputs(root,proof)
+ def test_output_denial_not_retried(self):
+  from msvc_probe import closed_compiler_outputs
+  from unittest.mock import patch
+  root,proof=self.files()
+  with patch.object(pathlib.Path,'lstat',side_effect=PermissionError(5,'synthetic')) as call:
+   with self.assertRaises(PermissionError):closed_compiler_outputs(root,proof)
+  self.assertEqual(call.call_count,1)
+ def test_changed_output_identity_cannot_pass(self):
+  from msvc_probe import closed_compiler_outputs
+  from unittest.mock import patch
+  import types
+  root,proof=self.files();original=pathlib.Path.lstat;calls=[0]
+  def changed(p):
+   row=original(p)
+   if p==root/'tiny-sdk.obj':
+    calls[0]+=1
+    if calls[0]>1:return types.SimpleNamespace(st_dev=row.st_dev,st_ino=row.st_ino+1,st_mode=row.st_mode,st_size=row.st_size,st_mtime_ns=row.st_mtime_ns)
+   return row
+  with patch.object(pathlib.Path,'lstat',changed):
+   with self.assertRaisesRegex(AssertionError,'OUTPUT_CHANGED'):closed_compiler_outputs(root,proof)
+ def test_compiler_probe_is_separate_and_stops_before_rust(self):
+  import inspect,msvc_probe
+  text=inspect.getsource(msvc_probe.setup_only_main);self.assertIn('[compiler-lifecycle-only-191]',text);self.assertIn('COMPILER_ONLY_COMPLETE',text);self.assertIn("'rustc','rustc.exe'",text);self.assertIn('rootCommandPurpose',text);self.assertIn('compilerFailureCleanup',text);self.assertIn("report['productionCompletionChanged']=False",text)
+ def test_owned_image_uses_held_identity_and_sanitized_vendor_metadata(self):
+  import inspect,msvc_probe
+  text=inspect.getsource(msvc_probe.owned_image);self.assertIn('members_held',text);self.assertIn('creationFiletime',text);self.assertIn('QueryFullProcessImageNameW',text);self.assertIn('FileDescription',text);self.assertIn('commandLineNotRead',text);self.assertNotIn('Get-CimInstance',text)
+
 if __name__=='__main__':unittest.main()
