@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "226d5b1ee984314c176742b430771755cde0047a94a04d5df3919c6090056698"
+    "sha256": "461f9909cb00cde77d09678bfde490fe556d0b60b47817d817d6b00e5241c103"
   },
   {
     "path": ".gitignore",
@@ -180,6 +180,10 @@
     "sha256": "2d160f7508c82d4d2a2edf67bd2ffd9b6a0cb9e7605089571d6f4dbcdaf79d8f"
   },
   {
+    "path": "ci/lld_probe.py",
+    "sha256": "3284b4d50eca79f3d17a4f80dfaec56c5e8a08810b656550a4b454a6f0a587a8"
+  },
+  {
     "path": "ci/lock_diagnostic.py",
     "sha256": "a99866a94659ca348de5e2f9e4d7f30a8623153827269f7bcede9a0304d71a4e"
   },
@@ -236,6 +240,10 @@
     "sha256": "e60e3e9e2c8a7d841e5fc60ee59e0fe81a2e1d2f88cb3d3ec6c87b3312b7270e"
   },
   {
+    "path": "ci/runtime_report.py",
+    "sha256": "47ce412d9578288b859d6c609c79d2f80ff38213ce6f7f248400ee5fbed4398c"
+  },
+  {
     "path": "ci/scratch_snapshot.py",
     "sha256": "349ff399e08e7ca5646bbe1a4785569289452bf3c72d1d8c531fb22e5950bccc"
   },
@@ -258,6 +266,10 @@
   {
     "path": "ci/test_fixture_privacy.py",
     "sha256": "c8562e3e1c85e4837682da76da62cf3fa18e1fb029feca78808fa35c75c818e6"
+  },
+  {
+    "path": "ci/test_lld_probe.py",
+    "sha256": "0ebd4f37235dd7cbbb76c15d84a5b6e27d4a1d13de4cddf141518085bfe3cfac"
   },
   {
     "path": "ci/test_lock_diagnostic.py",
@@ -310,6 +322,10 @@
   {
     "path": "ci/test_runner_preflight.py",
     "sha256": "69a757c37ca47393d27e2a3a7f09faed31cac18b0e532e9f45c008ae9a98d8f6"
+  },
+  {
+    "path": "ci/test_runtime_report.py",
+    "sha256": "ca34528e1bc3c77944517ec16c523bde7e9f001f6331aa6dcc7fa84ad4528657"
   },
   {
     "path": "ci/test_scan_efficiency.py",
@@ -31630,13 +31646,5 @@
   {
     "path": "codex-rs/worktree/tests/worktree.rs",
     "sha256": "345846a7e00d5db6c569d8ca21d7483dc8ce0f2c8e90298d91ffc1da0c7d54fd"
-  },
-  {
-    "path": "ci/runtime_report.py",
-    "sha256": "47ce412d9578288b859d6c609c79d2f80ff38213ce6f7f248400ee5fbed4398c"
-  },
-  {
-    "path": "ci/test_runtime_report.py",
-    "sha256": "ca34528e1bc3c77944517ec16c523bde7e9f001f6331aa6dcc7fa84ad4528657"
   }
 ]

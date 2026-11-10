@@ -103,6 +103,9 @@
         },
         {
           "run": "python -B ci/test_owned_job_probe.py"
+        },
+        {
+          "run": "python -B ci/test_lld_probe.py"
         }
       ]
     },
@@ -289,14 +292,21 @@
         {
           "name": "Tiny installed Microsoft x64 linker qualification only",
           "timeout-minutes": 5,
-          "run": "python -B ci/msvc_probe.py"
+          "run": "python -B ci/msvc_probe.py",
+          "if": "!contains(github.event.head_commit.message, '[lld-qualification-only-191]')"
+        },
+        {
+          "name": "Isolated pinned LLD Windows and Android compatibility only",
+          "if": "contains(github.event.head_commit.message, '[lld-qualification-only-191]')",
+          "timeout-minutes": 8,
+          "run": "python -B ci/lld_probe.py"
         },
         {
           "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
           "if": "always()",
           "with": {
             "name": "msvc-probe-${{ github.sha }}",
-            "path": "msvc-probe-work/msvc-qualification.json\nmsvc-probe-work/failure-summary.json\nmsvc-probe-work/trial-progress.json\npreflight-output/*.json\nprovision-output/*.json\nmsvc-probe-work/reparse-stop.json\nmsvc-probe-output/runtime-qualification.json\nmsvc-probe-output/runtime-evidence/*.json",
+            "path": "msvc-probe-work/msvc-qualification.json\nmsvc-probe-work/failure-summary.json\nmsvc-probe-work/trial-progress.json\npreflight-output/*.json\nprovision-output/*.json\nmsvc-probe-work/reparse-stop.json\nmsvc-probe-output/runtime-qualification.json\nmsvc-probe-output/runtime-evidence/*.json\nlld-probe-output/*.json\nlld-probe-work/failure-summary.json\nlld-probe-output/runtime-evidence/*.json",
             "if-no-files-found": "warn",
             "retention-days": 3
           }
