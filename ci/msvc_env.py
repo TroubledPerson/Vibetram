@@ -132,6 +132,28 @@ def optional_setup_environment(env,setup,pins=None):
   row=path.lstat();assert (row.st_dev,row.st_ino,row.st_mode)==identity and not getattr(row,'st_file_attributes',0)&0x400 and not getattr(row,'st_reparse_tag',0),'SETUP_SCRIPT_ANCESTOR_CHANGED'
  result=env.copy();result['VSCMD_SKIP_SENDTELEMETRY']='1';return result,{**contract,'setupSHA256':digest,'installedScriptChanged':False,'securitySettingsChanged':False,'scope':'ONE_SANITIZED_SETUP_CHILD_ENVIRONMENT'}
 
+
+def compiler_optout_event(repo,ref,kind,message):
+ if repo!='TroubledPerson/Vibetram' or ref!='refs/heads/main' or kind!='push' or not isinstance(message,str) or len(message)>4096:return False
+ probe=all(x in message for x in ('[msvc-probe-191]','[compiler-lifecycle-only-191]','[compiler-optout-191]'))
+ qualified_trial=all(x in message for x in ('[unsigned-trial-191]','[qualified-vctip-optout-191]'))
+ return probe or qualified_trial
+
+def compiler_optout_requested():
+ if os.environ.get('GITHUB_REPOSITORY')!='TroubledPerson/Vibetram' or os.environ.get('GITHUB_REF')!='refs/heads/main' or os.environ.get('GITHUB_EVENT_NAME')!='push':return False
+ path=pathlib.Path(os.environ['GITHUB_EVENT_PATH']);assert path.is_absolute() and 0<path.stat().st_size<=1024**2,'COMPILER_OPTOUT_EVENT_BOUND'
+ event=json.loads(path.read_text(encoding='utf-8'));message=event.get('head_commit',{}).get('message')
+ return compiler_optout_event(os.environ['GITHUB_REPOSITORY'],os.environ['GITHUB_REF'],os.environ['GITHUB_EVENT_NAME'],message)
+
+def compiler_telemetry_environment(env,pins,actual):
+ # MSFT support guidance is for 14.50; this exact 14.51 toolset must pass the
+ # compiler-only probe before an operator enables its qualified trial marker.
+ assert pins['toolset']=='14.51.36231' and actual.get('qualifiedToolPinsVerified') is True,'COMPILER_OPTOUT_PIN_QUALIFICATION'
+ tool_pins(pins,actual)
+ assert env.get('VSTEL_OPT_OUT') in (None,'1'),'UNEXPECTED_COMPILER_TELEMETRY_SETTING'
+ out=env.copy();out['VSTEL_OPT_OUT']='1'
+ return out,{'variable':'VSTEL_OPT_OUT','value':'1','scope':'EPHEMERAL_BUILD_CHILD_ENVIRONMENT','toolset':pins['toolset'],'pinsVerified':True,'compilerOrLinkerArgumentsChanged':False,'globalOrSecuritySettingsChanged':False,'memberExclusionsAdded':False,'guidanceURL':'https://developercommunity.visualstudio.com/t/11157272','guidanceToolsetScope':'14.50; current pinned 14.51 requires hosted qualification'}
+
 def qualify_msvc(base,work,guard):
  assert os.name=='nt';begin=time.monotonic();out={'state':'MSVC_QUALIFICATION_PENDING','compiledTinyFixtures':0,'executedFixture':False};result=work/'msvc-qualification.json'
  def run(args,env=base,timeout=60):
@@ -172,6 +194,7 @@ def qualify_msvc(base,work,guard):
   pins=read_pins();out.update(setupSHA256=hashlib.sha256(setup.read_bytes()).hexdigest(),libraryInputs=[{'relative':str(p.relative_to(tools if p.is_relative_to(tools) else sdk)),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in required])
   tool_pins(pins,out);out['qualifiedToolPinsVerified']=True
   env=apply_exports(base,exported,link,cl,lib)
+  if compiler_optout_requested():env,out['compilerTelemetryPolicy']=compiler_telemetry_environment(env,pins,out)
   assert pathlib.Path(shutil.which('link.exe',path=env['PATH']) or '').resolve()==link.resolve(),'PATH_STILL_RESOLVES_NON_MSVC_LINKER'
   libraries=library_directories(env['LIB']);out['libraryDirectories']=[str(p) for p in libraries]
   assert pathlib.PureWindowsPath(tools/'lib/x64') in libraries and pathlib.PureWindowsPath(sdk/'Lib'/sdkversion/'um/x64') in libraries,'MSVC_OR_SDK_LIBRARY_PATH_MISSING'

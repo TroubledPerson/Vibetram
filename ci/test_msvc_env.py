@@ -301,4 +301,52 @@ class CompilerCompletionProbe(unittest.TestCase):
   import inspect,msvc_probe
   text=inspect.getsource(msvc_probe.owned_image);self.assertIn('members_held',text);self.assertIn('creationFiletime',text);self.assertIn('QueryFullProcessImageNameW',text);self.assertIn('FileDescription',text);self.assertIn('commandLineNotRead',text);self.assertNotIn('Get-CimInstance',text)
 
+#                                      
+
+
+class CompilerTelemetryOptout(unittest.TestCase):
+ def test_probe_and_qualified_trial_are_explicit_trusted_run_modes(self):
+  from msvc_env import compiler_optout_event as gate
+  modes=['[msvc-probe-191] [compiler-lifecycle-only-191] [compiler-optout-191]','[unsigned-trial-191] [qualified-vctip-optout-191]']
+  for message in modes:
+   self.assertTrue(gate('TroubledPerson/Vibetram','refs/heads/main','push',message))
+   for repo,ref,event in [('other/repo','refs/heads/main','push'),('TroubledPerson/Vibetram','refs/heads/other','push'),('TroubledPerson/Vibetram','refs/heads/main','pull_request')]:self.assertFalse(gate(repo,ref,event,message))
+ def test_unqualified_or_partial_markers_do_not_change_default(self):
+  from msvc_env import compiler_optout_event as gate
+  for message in ['[unsigned-trial-191]','[compiler-optout-191]','[msvc-probe-191]','ordinary source commit',None,'x'*4097]:self.assertFalse(gate('TroubledPerson/Vibetram','refs/heads/main','push',message))
+ def actual(self):
+  from msvc_pins import read_pins
+  pins=read_pins();actual={key:pins[key] for key in ('toolset','sdkVersion','setupSHA256')};actual.update(vswhereIdentity=pins['tools'][:1],toolIdentities=pins['tools'][1:],libraryInputs=pins['libraryInputs'],qualifiedToolPinsVerified=True);return pins,actual
+ def test_child_only_optout_preserves_compiler_settings_and_parent(self):
+  from msvc_env import compiler_telemetry_environment
+  pins,actual=self.actual();env={'PATH':'qualified','INCLUDE':'same','LIB':'same','CL':'/W4','_CL_':'','LINK':'same','_LINK_':'same'};out,policy=compiler_telemetry_environment(env,pins,actual)
+  self.assertEqual(set(out)-set(env),{'VSTEL_OPT_OUT'});self.assertEqual({k:out[k] for k in env},env);self.assertNotIn('VSTEL_OPT_OUT',env);self.assertEqual(out['VSTEL_OPT_OUT'],'1');self.assertFalse(policy['memberExclusionsAdded']);self.assertFalse(policy['globalOrSecuritySettingsChanged'])
+ def test_missing_or_changed_tool_pins_are_fatal(self):
+  from msvc_env import compiler_telemetry_environment
+  pins,actual=self.actual()
+  for change in ({'qualifiedToolPinsVerified':False},{'setupSHA256':'0'*64},{'libraryInputs':[]}):
+   with self.assertRaises(AssertionError):compiler_telemetry_environment({},pins,{**actual,**change})
+ def test_unexpected_existing_optout_value_is_fatal(self):
+  from msvc_env import compiler_telemetry_environment
+  pins,actual=self.actual()
+  with self.assertRaises(AssertionError):compiler_telemetry_environment({'VSTEL_OPT_OUT':'0'},pins,actual)
+ def test_production_setting_is_applied_after_all_input_pins(self):
+  import inspect,msvc_env
+  text=inspect.getsource(msvc_env.qualify_msvc);self.assertLess(text.index('tool_pins(pins,out)'),text.index('compiler_telemetry_environment(env,pins,out)'));self.assertLess(text.index('compiler_telemetry_environment(env,pins,out)'),text.index("c=work/'tiny-sdk.c'"))
+
+#                                      
+
+
+class CompilerOptoutRequestFile(unittest.TestCase):
+ def test_nontrusted_context_does_not_read_event_file(self):
+  from msvc_env import compiler_optout_requested
+  from unittest.mock import patch
+  with patch.dict('os.environ',{'GITHUB_REPOSITORY':'other/repo'}),patch.object(pathlib.Path,'read_text',side_effect=AssertionError('UNEXPECTED_READ')):self.assertFalse(compiler_optout_requested())
+ def test_trusted_qualified_trial_reads_only_bounded_event(self):
+  import os,uuid,json
+  from msvc_env import compiler_optout_requested
+  from unittest.mock import patch
+  root=pathlib.Path(os.environ['VIBETRAM_TEST_TMP'])/('event-'+uuid.uuid4().hex);root.mkdir();event=root/'event.json';event.write_text(json.dumps({'head_commit':{'message':'[unsigned-trial-191] [qualified-vctip-optout-191]'}}))
+  with patch.dict(os.environ,{'GITHUB_REPOSITORY':'TroubledPerson/Vibetram','GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'push','GITHUB_EVENT_PATH':str(event)}):self.assertTrue(compiler_optout_requested())
+
 if __name__=='__main__':unittest.main()

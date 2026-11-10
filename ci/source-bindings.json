@@ -185,7 +185,7 @@
   },
   {
     "path": "ci/msvc_env.py",
-    "sha256": "b6d11a2fe572f557f564062df86c8fb299a7a8c5dd0195cf25cfb2f4f700d37f"
+    "sha256": "fb0f27ac696de0505bc2068a482f99a753ce58d1c2a1347bbe2d8e027f9cceb6"
   },
   {
     "path": "ci/msvc_pins.py",
@@ -269,7 +269,7 @@
   },
   {
     "path": "ci/test_msvc_env.py",
-    "sha256": "520278deac3891afeddeb3ba6cb01e11d0a45e9dba01938c243b1b57092e821a"
+    "sha256": "90117396e717579f0e9dd8052351f927ec2c5f7cfd968b40b37a708b297fbf5c"
   },
   {
     "path": "ci/test_msvc_pins.py",
