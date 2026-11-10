@@ -99,7 +99,7 @@ class RuntimeQualification(unittest.TestCase):
   s=runtime_version_program({"if":["0"]});self.assertIn('$m->VERSION("0")',s);self.assertNotIn("if->VERSION",s);self.assertIn('require "$f.pm"',s)
  def test_runtime_pins(self):
   from perl_overlay import RUNTIME_PACKAGES
-  self.assertEqual(len(RUNTIME_PACKAGES),4);self.assertTrue(all(len(x[2])==64 for x in RUNTIME_PACKAGES));self.assertEqual(RUNTIME_PACKAGES[0][4],"7.76")
+  self.assertEqual(len(RUNTIME_PACKAGES),8);self.assertTrue(all(len(x[2])==64 for x in RUNTIME_PACKAGES));self.assertEqual(RUNTIME_PACKAGES[0][4],"7.76")
  def test_runtime_function_imports_resolve(self):
   import ast,inspect,importlib
   from perl_overlay import runtime_diagnosis
@@ -135,7 +135,13 @@ class ConfigureRuntimeQualification(unittest.TestCase):
    def run(self,args,**kw):
     calls.append([str(x) for x in args])
     result={"state":"PASS_EXACT_PHYSICAL_NDK_PATH_LOOKUP" if lookup_ok else "WRONG","checks":3,"compilerExecuted":False,"prefix":"/d/a/Vibetram/Vibetram/openssl-probe-work/install"}
-    return subprocess.CompletedProcess(args,0,json.dumps(result) if len(calls)==1 else "synthetic Configure output","")
+    if len(calls)==1:stdout=json.dumps(result)
+    elif any(str(x).endswith("generated-helper-checks.pl") for x in args):stdout=json.dumps({"state":"PASS_ACTUAL_GENERATED_CONFIGURATION_HELPERS","checks":5,"target":"linux-aarch64"})
+    elif "--help" in args:stdout="configdata synthetic local help text with enough documentation for the fixture"
+    elif "--build-parameters" in args:stdout="Configurations/common0.tmpl Configurations/unix-Makefile.tmpl"
+    elif "--options" in args:stdout="Disabled features: synthetic"
+    else:stdout="synthetic Configure output"
+    return subprocess.CompletedProcess(args,0,stdout,"")
   text="PLATFORM=linux-aarch64\nCROSS_COMPILE="+cross+"\nCC=$(CROSS_COMPILE)"+cc+"\nAR=$(CROSS_COMPILE)llvm-ar.exe\nRANLIB=$(CROSS_COMPILE)llvm-ranlib.exe\nCFLAGS=--target=aarch64-linux-android29\n"
   tools=PHYSICAL_SDK/"ndk/30.0.16248370/toolchains/llvm/prebuilt/windows-x86_64/bin"
   try:
@@ -144,7 +150,7 @@ class ConfigureRuntimeQualification(unittest.TestCase):
    return result,calls
   except AssertionError as error:return error,calls
  def test_one_configure_no_make(self):
-  result,calls=self.configure_fixture();self.assertEqual(result["state"],"PASS_ACTUAL_CONFIGURE_ONLY_NOT_COMPILED");self.assertEqual(sum("./Configure" in x and "-c" not in x for x in calls),1);self.assertEqual(len(calls),4);self.assertFalse(result["makeRequested"]);self.assertTrue(all(not any(v in ("make","nmake","cargo") for v in row) for row in calls))
+  result,calls=self.configure_fixture();self.assertEqual(result["state"],"PASS_ACTUAL_CONFIGURE_ONLY_NOT_COMPILED");self.assertEqual(sum("./Configure" in x and "-c" not in x for x in calls),1);self.assertEqual(len(calls),9);self.assertTrue(result["generatedExecution"]["syntaxChecked"]);self.assertFalse(result["makeRequested"]);self.assertTrue(all(not any(v in ("make","nmake","cargo") for v in row) for row in calls))
  def test_bad_lookup_stops_before_configure(self):
   result,calls=self.configure_fixture(lookup_ok=False);self.assertIsInstance(result,AssertionError);self.assertEqual(len(calls),1)
  def test_wrong_generated_compiler_rejected(self):
@@ -155,5 +161,39 @@ class ConfigureRuntimeQualification(unittest.TestCase):
   import pathlib
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());job=w["jobs"]["openssl-probe"]
   self.assertEqual(job["permissions"],{"contents":"read"});self.assertEqual(job["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-configure");self.assertIn("[openssl-probe-191]",job["if"])
+
+
+class EndToEndConfiguration(unittest.TestCase):
+ def catalogue(self,ambiguous=False):
+  import pathlib,types
+  from unittest.mock import patch
+  from perl_overlay import CONFIGURATION_ROOTS,configuration_source_closure
+  root=pathlib.Path("D:/synthetic-source-not-created")
+  files={root/name:"use strict;\n" for name in CONFIGURATION_ROOTS}
+  files[root/"Configure"]="use OpenSSL::Template;\n"
+  files[root/"configdata.pm.in"]="use Pod::Usage;\nuse configdata;\nuse platform;\nuse gentemplate;\n"
+  files[root/"Configurations/platform/Unix.pm"]="require platform::BASE;\nuse configdata;\n"
+  files[root/"util/perl/OpenSSL/Template.pm"]="use Text::Template;\n"
+  files[root/"Configurations/unix-checker.pm"]="use Config;\n"
+  if ambiguous:files[root/"Configurations/OpenSSL/Template.pm"]="use strict;\n"
+  with patch("pathlib.Path.read_text",side_effect=lambda self,*a,**k:files[self],autospec=True),patch("pathlib.Path.read_bytes",side_effect=lambda self:files[self].encode(),autospec=True),patch("pathlib.Path.is_file",side_effect=lambda self:self in files,autospec=True),patch("pathlib.Path.stat",return_value=types.SimpleNamespace(st_size=100)),patch("pathlib.Path.glob",return_value=[]):return configuration_source_closure(root)
+ def test_generated_and_dynamic_roots(self):
+  d=self.catalogue();names={x["path"] for x in d["sourceFiles"]};self.assertIn("configdata.pm.in",names);self.assertIn("Configurations/platform/BASE.pm",names);self.assertIn("Configurations/common0.tmpl",names);self.assertIn("Pod::Usage",d["externalModules"]);self.assertNotIn("configdata",d["externalModules"]);self.assertNotIn("platform",d["externalModules"]);self.assertEqual(d["dynamicPlatform"],"platform::Unix")
+ def test_ambiguous_module_fails_closed(self):
+  with self.assertRaisesRegex(AssertionError,"AMBIGUOUS_LOCAL_PERL_MODULE"):self.catalogue(ambiguous=True)
+ def test_catalogue_not_runtime_claim(self):self.assertEqual(self.catalogue()["state"],"STATIC_CONFIGURATION_CATALOG_REQUIRES_DYNAMIC_EXECUTION")
+ def test_pod_function_not_only_loading(self):
+  from perl_overlay import pod_runtime_program
+  s=pod_runtime_program();self.assertIn("Pod::Usage::pod2usage(",s);self.assertIn('-noperldoc=>1',s);self.assertIn('-exitval=>"NOEXIT"',s);self.assertNotIn('system(',s)
+ def test_generated_helpers_are_actual_functions(self):
+  from perl_overlay import generated_helper_program
+  s=generated_helper_program();self.assertIn('platform->bin("offline_fixture")',s);self.assertIn('OpenSSL::Template->new',s);self.assertIn('$t->fill_in(HASH=>{})',s);self.assertIn('Configurations/common0.tmpl',s);self.assertNotIn('system(',s)
+ def test_provider_inventory_bound(self):
+  from perl_overlay import presence_program
+  self.assertIn('Fixture511',presence_program(['Fixture'+str(i) for i in range(512)]))
+  with self.assertRaises(AssertionError):presence_program(['Fixture'+str(i) for i in range(513)])
+ def test_recursive_exact_pins(self):
+  from perl_overlay import RUNTIME_PACKAGES
+  self.assertEqual([x[4] for x in RUNTIME_PACKAGES[4:]],["2.05","3.28","1.302210","0.024"])
 
 if __name__=="__main__":unittest.main()
