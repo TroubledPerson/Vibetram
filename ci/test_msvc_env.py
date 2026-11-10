@@ -475,4 +475,59 @@ class RustTelemetryCompletion(unittest.TestCase):
  def test_version_query_unchanged(self):
   c=self.rust_case();c[1][:]=[c[1][0],'--version'];self.assertIsNone(self.invoke(c));self.assertFalse(c[6]['stopped'])
 
+
+class IsolatedForcedRustEvidence(unittest.TestCase):
+ def fixture(self,branch='forced'):
+  import copy,types
+  from msvc_probe import VCTIP_SHA256,VCTIP_RELATIVE
+  from test_runtime_report import fixture
+  monitor=fixture()['monitor'];command=monitor['commands'][0];command['tool']='rustc';proof=command['ownedJobTeardown']
+  proof.update(events=['CREATED_SUSPENDED_IN_OWNED_JOB','JOB_LIST_NO_BREAKAWAY','RESUMED_AFTER_ASSIGNMENT'],directJobTermination=branch!='natural',observedBefore=[])
+  output={'name':'tiny-msvc.exe','bytes':1024,'sha256':'0'*64,'closedOwnedWritersVerified':True,'x64PESectionBoundsValidated':True}
+  qualification={'state':'PASS_INSTALLED_MSVC_X64_AND_WINDOWS_SDK','qualifiedToolPinsVerified':True,'compiledTinyFixtures':2,'executedFixture':False,'rustVersion':'rustc 1.95.0 (synthetic)','optionalCompilerHelperIdentity':{'authenticode':'Valid','company':'Microsoft Corporation','sha256':VCTIP_SHA256},'fixtures':[{'name':output['name'],'bytes':output['bytes'],'sha256':output['sha256']}]}
+  if branch!='natural':
+   image={'pid':99,'creationFiletime':999,'imageBaseName':'vctip.exe','locationClass':'ProgramFiles','relativeImage':VCTIP_RELATIVE,'imageSHA256':VCTIP_SHA256,'fileVersion':'14.51.36260.0','vendorCompanyMetadataMatchesMicrosoft':True,'vendorResourceFieldsMissing':[],'vendorResourceStrings':{'OriginalFilename':'VCTIP.EXE','FileDescription':'Microsoft\u00ae VC compiler and tools experience improvement data uploader'}}
+   proof['heldIdentities'].append({'pid':99,'creationFiletime':999,'exited':True,'exitCode':7 if branch=='forced' else 0});proof['heldIdentityCount']=2
+   proof['optionalCompilerCompletion']={'state':'VERIFIED_OPTIONAL_TELEMETRY_CLEANUP','fixture':'TINY_RUST_MSVC','helperIdentity':image}
+   if branch!='race-empty':proof['observedBefore']=[{'pid':99,'creationFiletime':999,'exited':False,'exitCode':None}]
+  return qualification,command,[output],monitor
+ def test_forced_cleanup_exact_live_helper(self):
+  from msvc_probe import isolated_rust_measurement
+  q,c,o,_=self.fixture();r=isolated_rust_measurement(q,c,o);self.assertEqual(r['branch'],'FORCED_PINNED_HELPER_CLEANUP_EXERCISED');self.assertTrue(r['forcedCleanupQualified'])
+ def test_natural_is_explicit_gap(self):
+  from msvc_probe import isolated_rust_measurement
+  q,c,o,_=self.fixture('natural');r=isolated_rust_measurement(q,c,o);self.assertFalse(r['forcedCleanupQualified']);self.assertEqual(r['branch'],'NATURAL_EMPTY_NO_FORCED_RUST_BRANCH')
+ def test_helper_exit_before_termination_not_forced_proof(self):
+  from msvc_probe import isolated_rust_measurement
+  q,c,o,_=self.fixture('race-empty');r=isolated_rust_measurement(q,c,o);self.assertFalse(r['forcedCleanupQualified'])
+ def test_helper_natural_exit_during_termination_not_forced_proof(self):
+  from msvc_probe import isolated_rust_measurement
+  q,c,o,_=self.fixture('race-live');self.assertFalse(isolated_rust_measurement(q,c,o)['forcedCleanupQualified'])
+ def test_other_helper_identity_fails(self):
+  from msvc_probe import isolated_rust_measurement
+  q,c,o,_=self.fixture();c['ownedJobTeardown']['optionalCompilerCompletion']['helperIdentity']['imageSHA256']='1'*64
+  with self.assertRaises(AssertionError):isolated_rust_measurement(q,c,o)
+ def test_extra_unknown_member_fails(self):
+  from msvc_probe import isolated_rust_measurement
+  q,c,o,_=self.fixture();t=c['ownedJobTeardown'];t['heldIdentities'].append({'pid':100,'creationFiletime':1000,'exited':True,'exitCode':7});t['heldIdentityCount']=3
+  with self.assertRaises(AssertionError):isolated_rust_measurement(q,c,o)
+ def test_unverified_signature_fails(self):
+  from msvc_probe import isolated_rust_measurement
+  q,c,o,_=self.fixture();q['optionalCompilerHelperIdentity']['authenticode']='Unknown'
+  with self.assertRaises(AssertionError):isolated_rust_measurement(q,c,o)
+ def test_output_mismatch_fails(self):
+  from msvc_probe import isolated_rust_measurement
+  q,c,o,_=self.fixture();o[0]['sha256']='2'*64
+  with self.assertRaises(AssertionError):isolated_rust_measurement(q,c,o)
+ def test_survivor_fails(self):
+  from msvc_probe import isolated_rust_measurement
+  q,c,o,_=self.fixture();c['ownedJobTeardown']['activeMembers']=1
+  with self.assertRaises(AssertionError):isolated_rust_measurement(q,c,o)
+ def test_forced_report_roundtrip(self):
+  import pathlib,uuid,os,types
+  from msvc_probe import qualify_isolated_rust_report
+  q,c,o,m=self.fixture();out=pathlib.Path(os.environ['RUNNER_TEMP'])/('forced-report-'+uuid.uuid4().hex);out.mkdir()
+  guard=types.SimpleNamespace(report=lambda:m,_resource_sample=lambda:None)
+  r=qualify_isolated_rust_report(guard,q,o,out);self.assertEqual(r['state'],'PASS');self.assertTrue(r['measurement']['forcedCleanupQualified']);self.assertFalse(r['productionRustCleanupEnabled'])
+
 if __name__=='__main__':unittest.main()

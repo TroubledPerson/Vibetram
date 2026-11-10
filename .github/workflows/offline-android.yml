@@ -296,7 +296,7 @@
           "if": "always()",
           "with": {
             "name": "msvc-probe-${{ github.sha }}",
-            "path": "msvc-probe-work/msvc-qualification.json\nmsvc-probe-work/failure-summary.json\nmsvc-probe-work/trial-progress.json\npreflight-output/*.json\nprovision-output/*.json\nmsvc-probe-work/reparse-stop.json",
+            "path": "msvc-probe-work/msvc-qualification.json\nmsvc-probe-work/failure-summary.json\nmsvc-probe-work/trial-progress.json\npreflight-output/*.json\nprovision-output/*.json\nmsvc-probe-work/reparse-stop.json\nmsvc-probe-output/runtime-qualification.json\nmsvc-probe-output/runtime-evidence/*.json",
             "if-no-files-found": "warn",
             "retention-days": 3
           }

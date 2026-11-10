@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "00ae4fc48a9aa00ec359420ba4b9c3c9a2a3cc98119dfbfa092fadb4b71aada8"
+    "sha256": "226d5b1ee984314c176742b430771755cde0047a94a04d5df3919c6090056698"
   },
   {
     "path": ".gitignore",
@@ -193,7 +193,7 @@
   },
   {
     "path": "ci/msvc_probe.py",
-    "sha256": "21c632a314309795acb79970161f0ccd518672dd350d67a842791e090270efed"
+    "sha256": "1f4c0a7b69fd137e0c2f021293f3008b49a6a11ede74f95d610d3cf518c9e656"
   },
   {
     "path": "ci/ndk_input_metadata.py",
@@ -269,7 +269,7 @@
   },
   {
     "path": "ci/test_msvc_env.py",
-    "sha256": "b82631ecca918f6c63ec2acc36c071048ef45a1edf76ec7003ccd42f596998f9"
+    "sha256": "407749c3e5810896c2cd5000ae2e6ab244feef4161caabc896c9dc772068407c"
   },
   {
     "path": "ci/test_msvc_pins.py",

@@ -186,7 +186,10 @@ def isolated_rust_cleanup(proc,args,env,work,stdout,stderr,sampler):
    rows.append((key(after),hashlib.sha256(data).hexdigest()))
   return rows
  logs=captured_logs()
- result=compiler_completion(proc,args,local,work,stdout,stderr,sampler)
+ proc.isolatedRustObservedImages=[]
+ def capture_member(job,row,active_sampler):
+  image=owned_image(job,row,active_sampler);proc.isolatedRustObservedImages.append(image);return image
+ result=compiler_completion(proc,args,local,work,stdout,stderr,sampler,describe=capture_member)
  if result is None:
   # Verify normal completion directly; calling this probe override recursively
   # would confuse classification and must never stand in for kernel proof.
@@ -206,6 +209,44 @@ def isolated_rust_cleanup(proc,args,env,work,stdout,stderr,sampler):
  result.update(rootExit=0,capturedLogsUnchanged=True,outputs=outputs,zeroOwnedMembersVerified=True)
  return result
 
+
+
+def isolated_rust_measurement(qualification,command,outputs):
+ """Classify only this fixture and this held job, never an earlier process."""
+ assert qualification['state']=='PASS_INSTALLED_MSVC_X64_AND_WINDOWS_SDK' and qualification['qualifiedToolPinsVerified'] is True and qualification['compiledTinyFixtures']==2 and qualification['executedFixture'] is False,'ISOLATED_RUST_COMPILER_QUALIFICATION'
+ assert qualification['rustVersion'].startswith('rustc 1.95.0 '),'ISOLATED_RUST_PIN'
+ signed=qualification['optionalCompilerHelperIdentity']
+ assert signed['authenticode']=='Valid' and signed['company']=='Microsoft Corporation' and signed['sha256']==VCTIP_SHA256,'ISOLATED_RUST_HELPER_SIGNATURE'
+ assert pathlib.Path(command['tool']).name.lower() in ('rustc','rustc.exe') and command['exit']==0,'ISOLATED_RUST_ROOT_SUCCESS'
+ proof=command['ownedJobTeardown'];held=proof['heldIdentities']
+ assert proof['treeState']=='VERIFIED_OWNED_JOB_ZERO_MEMBERS' and proof['processTreeExitIndependentlyVerified'] is True and proof['completeActiveMemberAccounting'] is True and proof['activeMembers']==0 and proof['knownHandlesExited'] is True and not proof['supervisionFailures'],'ISOLATED_RUST_ZERO_PROOF'
+ assert held and proof['heldIdentityCount']==len(held) and all(h['exited'] for h in held) and held[0]['exitCode']==0,'ISOLATED_RUST_HELD_IDENTITIES'
+ assert all(x in proof['events'] for x in ('CREATED_SUSPENDED_IN_OWNED_JOB','JOB_LIST_NO_BREAKAWAY','RESUMED_AFTER_ASSIGNMENT')),'ISOLATED_RUST_OWNERSHIP_ORIGIN'
+ import re
+ assert len(outputs)==1 and type(outputs[0]['bytes']) is int and 0<outputs[0]['bytes']<=8*1024**2 and re.fullmatch('[a-f0-9]{64}',outputs[0]['sha256']) and outputs[0]['name']=='tiny-msvc.exe' and outputs[0]['closedOwnedWritersVerified'] is True and outputs[0]['x64PESectionBoundsValidated'] is True,'ISOLATED_RUST_PE_PROOF'
+ expected=[x for x in qualification['fixtures'] if x['name']=='tiny-msvc.exe'];assert len(expected)==1 and expected[0]['bytes']==outputs[0]['bytes'] and expected[0]['sha256']==outputs[0]['sha256'],'ISOLATED_RUST_OUTPUT_BINDING'
+ detail=proof.get('optionalCompilerCompletion')
+ if detail is None:
+  assert proof['directJobTermination'] is False,'ISOLATED_RUST_UNCLASSIFIED_TERMINATION'
+  return {'branch':'NATURAL_EMPTY_NO_FORCED_RUST_BRANCH','forcedCleanupQualified':False,'rootExit':0,'zeroMembersVerified':True,'outputs':outputs}
+ assert detail['state']=='VERIFIED_OPTIONAL_TELEMETRY_CLEANUP' and detail['fixture']=='TINY_RUST_MSVC' and proof['directJobTermination'] is True,'ISOLATED_RUST_CLEANUP_CONTRACT'
+ image=detail['helperIdentity'];identity=validate_telemetry_member(image)
+ helper=[h for h in held if (h['pid'],h['creationFiletime'])==identity]
+ assert len(held)==2 and len(helper)==1,'ISOLATED_RUST_UNKNOWN_HELD_MEMBER'
+ before=proof['observedBefore']
+ assert len(before)<=1 and all((h['pid'],h['creationFiletime'])==identity for h in before),'ISOLATED_RUST_UNKNOWN_PRESTOP_MEMBER'
+ exercised=len(before)==1 and before[0]['exited'] is False and helper[0]['exitCode']==7
+ return {'branch':'FORCED_PINNED_HELPER_CLEANUP_EXERCISED' if exercised else 'HELPER_EXIT_RACE_FORCED_KILL_UNPROVEN','forcedCleanupQualified':exercised,'rootExit':0,'zeroMembersVerified':True,'helperIdentity':image,'helperExitCode':helper[0]['exitCode'],'outputs':outputs}
+
+def qualify_isolated_rust_report(guard,qualification,outputs,out):
+ from runtime_report import write_runtime_report,read_runtime_report
+ monitor=guard.report();assert monitor['commands'],'ISOLATED_RUST_COMMAND_EVIDENCE_MISSING'
+ measurement=isolated_rust_measurement(qualification,monitor['commands'][-1],outputs)
+ payload={'state':'PASS_ISOLATED_RUST_LIFECYCLE_AND_REPORT','measurement':measurement,'fullBuildGatesDisabled':True,'productionRustCleanupEnabled':False,'monitor':monitor}
+ summary=write_runtime_report(payload,out,guard._resource_sample)
+ actual,reconstructed=read_runtime_report(out)
+ assert actual==summary and reconstructed==monitor,'ISOLATED_RUST_REPORT_RECONSTRUCTION'
+ return {'state':'PASS','measurement':measurement,'index':summary['monitor']['index'],'originalMonitorSHA256':summary['monitor']['originalSHA256'],'fullBuildGatesDisabled':True,'productionRustCleanupEnabled':False}
 
 class SetupOnlyComplete(RuntimeError):pass
 
@@ -232,7 +273,11 @@ def setup_only_main():
    return super().start(args,cwd,env,**kw)
   def finish(self,terminate=False,sampler=None,seconds=3):
    if getattr(self,'rust_cleanup_probe',False) and not terminate and self.teardown is None:
-    a,e,w,o,err=self.rust_invocation;verified=isolated_rust_cleanup(self,a,e,w,o,err,sampler);observations.append({'phase':'rust-cleanup-only','state':'PASS_'+verified['state'],'fixture':verified['fixture'],'zeroOwnedMembersVerified':verified['zeroOwnedMembersVerified']})
+    try:
+     a,e,w,o,err=self.rust_invocation;verified=isolated_rust_cleanup(self,a,e,w,o,err,sampler);observations.append({'phase':'rust-cleanup-only','state':'PASS_'+verified['state'],'fixture':verified['fixture'],'zeroOwnedMembersVerified':verified['zeroOwnedMembersVerified'],'observedImages':getattr(self,'isolatedRustObservedImages',[])})
+    except BaseException:
+     observations.append({'phase':'rust-cleanup-only','state':'FAILED_CLOSED','observedImages':getattr(self,'isolatedRustObservedImages',[])})
+     raise
    if (self.setup_target or self.compiler_target) and not terminate and self.teardown is None:
     row={'phase':'rust' if self.rust_target else ('compiler' if self.compiler_target else 'setup')};observations.append(row);natural_setup_exit(self,sampler,lambda j,r:owned_image(j,r,sampler),row,seconds)
    result=super().finish(terminate,sampler,seconds)
@@ -277,6 +322,11 @@ def setup_only_main():
    else:
     assert rust_only and captured.get('rustOutputsValidated'),'SETUP_PROBE_COMPILATION_BOUNDARY'
     report.update(state='PASS_RUST_ONLY_NATURAL_OR_QUALIFIED_COMPLETION',stoppedBeforeCargo=True,captured=captured,fullBuildGatesDisabled=True,productionRustCleanupEnabled=False)
+  if rust_only and '[rust-forced-evidence-only-191]' in event['head_commit']['message']:
+   report['state']='ISOLATED_RUST_REPORT_PENDING'
+   pins=json.loads((work/'msvc-qualification.json').read_text())
+   report['isolatedEvidence']=qualify_isolated_rust_report(guard,pins,captured['rustOutputs'],out)
+   report['state']='PASS_ISOLATED_RUST_LIFECYCLE_AND_REPORT'
  finally:
   report.update(elapsedSeconds=time.monotonic()-start,commands=guard.commands,sampledNotQuota=True,compiledAnything=captured.get('compilerInvoked',False),captured=captured)
   if compiler_only and captured.get('compilerInvoked') and report['state'] not in ('PASS_COMPILER_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP'):
@@ -295,7 +345,7 @@ def setup_only_main():
   summary=os.environ.get('GITHUB_STEP_SUMMARY')
   if summary:
    with open(summary,'a',encoding='utf-8') as f:f.write('## MSVC setup-only lifecycle\n\n```json\n'+text+'\n```\n')
- assert report['state'] in ('PASS_SETUP_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP','PASS_RUST_ONLY_NATURAL_OR_QUALIFIED_COMPLETION'),'SETUP_LIFECYCLE_UNQUALIFIED'
+ assert report['state'] in ('PASS_SETUP_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP','PASS_RUST_ONLY_NATURAL_OR_QUALIFIED_COMPLETION','PASS_ISOLATED_RUST_LIFECYCLE_AND_REPORT'),'SETUP_LIFECYCLE_UNQUALIFIED'
  source_check(ROOT)
 
 def main():
