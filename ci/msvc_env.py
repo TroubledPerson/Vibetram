@@ -157,7 +157,9 @@ def qualify_msvc(base,work,guard):
   install=pathlib.Path(raw);setup=install/'Common7/Tools/VsDevCmd.bat';assert setup.is_file(),'OFFICIAL_VSDEV_CMD_MISSING'
   batch=work/'msvc-setup.cmd';batch.write_text('@echo off\r\ncall "'+str(setup)+'" -no_logo -arch=x64 -host_arch=x64 >nul\r\nif errorlevel 1 exit /b 1\r\n'+'\r\n'.join('set '+k for k in EXPORTS)+'\r\nexit /b 0\r\n',encoding='utf-8')
   cmd=pathlib.Path(base['SystemRoot'])/'System32/cmd.exe'
-  exported=parse_exports(run([cmd,'/d','/c',str(batch)],env=discovery,timeout=60).stdout)
+  setup_env,setup_policy=optional_setup_environment(discovery,setup)
+  out['setupBackgroundPolicy']=setup_policy
+  exported=parse_exports(run([cmd,'/d','/c',str(batch)],env=setup_env,timeout=60).stdout)
   tools=pathlib.Path(exported['VCToolsInstallDir']);sdk=pathlib.Path(exported['WindowsSdkDir']);sdkversion=exported['WindowsSDKVersion'].rstrip('\\/')
   assert tools.resolve().is_relative_to((install/'VC/Tools/MSVC').resolve()),'VC_TOOLS_OUTSIDE_DISCOVERED_INSTALLATION'
   assert re.fullmatch(r'14\.\d+\.\d+',exported['VCToolsVersion']) and tools.name==exported['VCToolsVersion'],'UNEXPECTED_MSVC_TOOLSET_IDENTITY'

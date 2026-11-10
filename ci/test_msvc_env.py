@@ -222,4 +222,27 @@ class ExactPinnedTelemetryBranch(unittest.TestCase):
   text=OptionalSetupContract().text(extra='if "%VSCMD_DEBUG%" NEQ "" (\necho debug\n) else (\ncall :UnknownWork\n)')
   with self.assertRaises(AssertionError):telemetry_setup_contract(text)
 
+
+
+
+class ProductionOptionalSetupIntegration(unittest.TestCase):
+ def test_qualified_helper_is_applied_only_to_setup_child(self):
+  import os,uuid,json,types
+  from unittest.mock import patch,Mock
+  import msvc_env
+  root=pathlib.Path(os.environ.get('VIBETRAM_TEST_TMP',os.environ.get('RUNNER_TEMP',str(pathlib.Path(__file__).parents[1]/'ci-unit-output'))))/('setup-seam-'+uuid.uuid4().hex);root.mkdir(parents=True);install=root/'synthetic-vs';base={'PATH':str(root/'bin'),'SystemRoot':'C:/Windows','PROGRAMFILES(X86)':str(root/'programfiles')};captured=[];helperInputs=[]
+  class StopSetup(RuntimeError):pass
+  def helper(env,setup):helperInputs.append(dict(env));self.assertEqual(setup,install/'Common7/Tools/VsDevCmd.bat');return {**env,'VSCMD_SKIP_SENDTELEMETRY':'1'},{'scope':'ONE_SANITIZED_SETUP_CHILD_ENVIRONMENT'}
+  class Guard:
+   def run(_,args,**kw):
+    name=pathlib.Path(args[0]).name.lower()
+    if name in ('pwsh','pwsh.exe'):return types.SimpleNamespace(stdout=json.dumps([{'name':'vswhere.exe','sha256':'synthetic'}]))
+    if name=='vswhere.exe':return types.SimpleNamespace(stdout=str(install))
+    if name=='cmd.exe':captured.append(dict(kw['env']));raise StopSetup('SYNTHETIC_SETUP_BOUNDARY')
+    raise AssertionError('UNEXPECTED_TOOL_IN_SEAM')
+   def check(_):return None
+  with patch.object(pathlib.Path,'is_file',return_value=True),patch.object(msvc_env.shutil,'which',side_effect=lambda name,path=None:str(root/'bin'/name)),patch.object(msvc_env,'optional_setup_environment',side_effect=helper) as spy,patch.dict(os.environ,{'ProgramData':'C:\\ProgramData','ALLUSERSPROFILE':'C:\\ProgramData'}):
+   with self.assertRaisesRegex(StopSetup,'SYNTHETIC_SETUP_BOUNDARY'):msvc_env.qualify_msvc(base,root,Guard())
+  self.assertEqual(spy.call_count,1);self.assertEqual(len(captured),1);self.assertEqual(captured[0]['VSCMD_SKIP_SENDTELEMETRY'],'1');self.assertNotIn('VSCMD_SKIP_SENDTELEMETRY',base);self.assertNotIn('VSCMD_SKIP_SENDTELEMETRY',helperInputs[0]);self.assertEqual(captured[0]['PATH'],base['PATH']);self.assertEqual(captured[0]['SystemRoot'],base['SystemRoot'])
+
 if __name__=='__main__':unittest.main()
