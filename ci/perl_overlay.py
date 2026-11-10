@@ -28,9 +28,9 @@ def review(data):
  assert re.search(r"^\s*name:\s+Locale-Maketext-Simple\s*$",meta,re.M) and re.search(r"^\s*version:\s+0[.]21\s*$",meta,re.M),"CPAN_PACKAGE_IDENTITY"
  assert re.search(r"^\s*requires:\s*\{\s*\}",meta,re.M),"NEW_RUNTIME_DEPENDENCIES"
  assert re.search(r"^\s*license:\s*perl\s*$",meta,re.M),"CPAN_LICENCE_METADATA"
- assert imports(body)=={"base","strict"} and re.search(r"use\s+base\s+[^;\n]*\bExporter\b",body),"UNREVIEWED_MODULE_IMPORT"
+ assert imports(body)=={"base","strict"} and "use base 'Locale::Maketext';" in body and re.search(r"eval\s*\{\s*require\s+Locale::Maketext::Lexicon;\s*1\s*}\s*or\s*return;",body),"UNREVIEWED_MODULE_IMPORT"
  assert "COPYRIGHT" in body and "MIT" in body,"MODULE_NOTICE_ABSENT"
- return selected,{"archiveSHA256":ARCHIVE_SHA,"archiveBytes":len(data),"moduleSHA256":MODULE_SHA,"declaredRuntimeDependencies":{},"observedCoreImports":["base","Exporter","strict"],"optionalLexicon":"Documented fallback when Locale::Maketext::Lexicon is absent; focused runtime test required","metadataLicense":"perl; complete original module/README/META/Makefile notices retained","memberCount":len(members),"uncompressedBytes":total,"sourceReviewedBeforeCopy":True}
+ return selected,{"archiveSHA256":ARCHIVE_SHA,"archiveBytes":len(data),"moduleSHA256":MODULE_SHA,"declaredRuntimeDependencies":{},"observedCoreImports":["strict"],"optionalBranchImports":["Locale::Maketext::Lexicon","File::Spec","base/Locale::Maketext"],"optionalLexicon":"Documented fallback when Locale::Maketext::Lexicon is absent; focused runtime test required","metadataLicense":"perl; complete original module/README/META/Makefile notices retained","memberCount":len(members),"uncompressedBytes":total,"sourceReviewedBeforeCopy":True}
 def prepare(work,out):
  root=pathlib.Path(__file__).resolve().parents[1]
  assert work==root/"openssl-probe-work" and out==root/"openssl-probe-output" and work.is_dir() and out.is_dir(),"OWNED_OVERLAY_SCOPE"

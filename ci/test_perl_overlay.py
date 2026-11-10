@@ -2,8 +2,8 @@ import unittest,io,tarfile,hashlib
 from unittest.mock import patch
 from perl_overlay import review,parse_overlay_path,focused_program,MODULE_SHA
 class Overlay(unittest.TestCase):
- def archive(self,extra=None,meta=None):
-  body=b"package Locale::Maketext::Simple;\nuse strict;\nuse base 'Exporter';\n# COPYRIGHT MIT synthetic fixture\n1;\n"
+ def archive(self,extra=None,meta=None,base="Locale::Maketext"):
+  body=("package Locale::Maketext::Simple;\nuse strict;\nsub load_loc {\n eval { require Locale::Maketext::Lexicon; 1 } or return;\n eval \"\n use base '"+base+"';\n \";\n}\n# COPYRIGHT MIT synthetic fixture\n1;\n").encode()
   files={"lib/Locale/Maketext/Simple.pm":body,"README":b"Synthetic notice.\n","META.yml":meta or b"name: Locale-Maketext-Simple\nversion: 0.21\nlicense: perl\nrequires: {}\n","Makefile.PL":b"# Never executed fixture.\n"}
   b=io.BytesIO()
   with tarfile.open(fileobj=b,mode="w:gz") as t:
@@ -12,11 +12,13 @@ class Overlay(unittest.TestCase):
    if extra:
     m=tarfile.TarInfo(extra[0]);m.type=extra[1];m.size=0;t.addfile(m,io.BytesIO())
   return b.getvalue(),body
- def reviewed(self,extra=None,meta=None):
-  data,body=self.archive(extra,meta)
+ def reviewed(self,extra=None,meta=None,base="Locale::Maketext"):
+  data,body=self.archive(extra,meta,base)
   with patch.multiple("perl_overlay",ARCHIVE_SHA=hashlib.sha256(data).hexdigest(),ARCHIVE_BYTES=len(data),MODULE_SHA=hashlib.sha256(body).hexdigest()):return review(data)
  def test_good(self):
-  files,report=self.reviewed();self.assertEqual(len(files),4);self.assertTrue(report["sourceReviewedBeforeCopy"]);self.assertEqual(report["observedCoreImports"],["base","Exporter","strict"])
+  files,report=self.reviewed();self.assertEqual(len(files),4);self.assertTrue(report["sourceReviewedBeforeCopy"]);self.assertEqual(report["observedCoreImports"],["strict"])
+ def test_wrong_optional_base(self):
+  with self.assertRaisesRegex(AssertionError,"UNREVIEWED_MODULE_IMPORT"):self.reviewed(base="Exporter")
  def test_checksum(self):
   data,_=self.archive()
   with self.assertRaisesRegex(AssertionError,"PINNED_CPAN_ARCHIVE_MISMATCH"):review(data)
