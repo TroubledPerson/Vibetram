@@ -50,5 +50,93 @@ class BuildPolicy(unittest.TestCase):
  def test_cross_repository_blob_denied(self):self.assertFalse(qualified_license_link('git/checkouts/h3-a123/e07e694/h3/LICENSE','../LICENSE',NUCLEO_LICENSE_BLOB))
  def test_h3_wrong_target_denied(self):self.assertIsNone(license_rule('git/checkouts/h3-a123/e07e694/h3/LICENSE','../../LICENSE'))
  def test_h3_nonlicense_link_denied(self):self.assertIsNone(license_rule('git/checkouts/h3-a123/e07e694/h3/code','../LICENSE'))
-if __name__=='__main__':unittest.main()
 
+
+
+
+class QualifiedRustExecutables(unittest.TestCase):
+ def fixture(self):
+  import os,uuid
+  base=pathlib.Path(os.environ.get('VIBETRAM_TEST_TMP',os.environ.get('RUNNER_TEMP',str(pathlib.Path(__file__).parents[1]/'ci-unit-output'))))/('resolver-'+uuid.uuid4().hex);base.mkdir(parents=True)
+  shim=base/'proxy bin';shim.mkdir();native=base/'rustup/toolchains/1.95.0-x86_64-pc-windows-msvc/bin';native.mkdir(parents=True);cargo=base/'cargo';cargo.mkdir()
+  body=b'MZ'+b'synthetic nonexecutable fixture'*8
+  for n in ('rustup.exe','cargo.exe','rustc.exe'):(shim/n).write_bytes(body)
+  for n in ('cargo.exe','rustc.exe'):(native/n).write_bytes(body+b'pinned native synthetic')
+  env={'PATH':str(shim),'RUSTUP_HOME':str(base/'rustup'),'CARGO_HOME':str(cargo),'RUSTUP_TOOLCHAIN':'1.95.0-x86_64-pc-windows-msvc','RUSTUP_AUTO_INSTALL':'0'}
+  return base,shim,native,env
+ def test_both_rust_entry_points_bind_selected_and_pinned_identity(self):
+  from build_guard import qualified_executable
+  _,shim,_,env=self.fixture()
+  for name in ('cargo','rustc','cargo.exe','RUSTC.EXE'):
+   args,binding=qualified_executable([name,'--version'],env);self.assertEqual(pathlib.Path(args[0]),shim/(name.lower().removesuffix('.exe')+'.exe'));self.assertEqual(args[1: ],['--version']);self.assertEqual(binding['route'],'PINNED_RUSTUP_PROXY_ON_PATH');self.assertTrue(binding['versionRecheckRequired']);self.assertEqual(len(binding['selected']['sha256']),64)
+ def test_native_exact_pinned_path_is_supported(self):
+  from build_guard import qualified_executable
+  _,_,native,env=self.fixture();env['PATH']=str(native);args,binding=qualified_executable(['cargo'],env);self.assertEqual(pathlib.Path(args[0]),native/'cargo.exe');self.assertEqual(binding['route'],'PINNED_NATIVE_ON_PATH')
+ def test_duplicate_same_path_and_trailing_separator_do_not_search_cwd(self):
+  from build_guard import qualified_executable
+  import os
+  _,shim,_,env=self.fixture();env['PATH']=str(shim)+os.pathsep+str(shim)+os.pathsep;self.assertEqual(pathlib.Path(qualified_executable(['cargo'],env)[0][0]),shim/'cargo.exe')
+ def test_distinct_matching_path_entries_are_ambiguous(self):
+  from build_guard import qualified_executable
+  import os
+  base,_,native,env=self.fixture();env['PATH']+=os.pathsep+str(native)
+  with self.assertRaisesRegex(AssertionError,'AMBIGUOUS'):qualified_executable(['cargo'],env)
+ def test_parent_path_is_never_used(self):
+  from build_guard import qualified_executable
+  from unittest.mock import patch
+  base,shim,_,env=self.fixture();empty=base/'empty';empty.mkdir();env['PATH']=str(empty)
+  with patch.dict('os.environ',{'PATH':str(shim)}):
+   with self.assertRaisesRegex(AssertionError,'AMBIGUOUS'):qualified_executable(['cargo'],env)
+ def test_relative_script_unknown_tool_and_empty_path_rejected(self):
+  from build_guard import qualified_executable
+  _,_,_,env=self.fixture()
+  for name in ('other','cargo.cmd','./cargo','../cargo','cargo --version'):
+   with self.assertRaisesRegex(AssertionError,'UNQUALIFIED_BARE'):qualified_executable([name],env)
+  for path in ('','relative'):
+   with self.assertRaisesRegex(AssertionError,'QUALIFIED_PATH'):qualified_executable(['cargo'],{**env,'PATH':path})
+ def test_missing_or_changed_toolchain_and_auto_install_rejected(self):
+  from build_guard import qualified_executable
+  _,_,_,env=self.fixture()
+  for values in ({'RUSTUP_TOOLCHAIN':'stable'},{'RUSTUP_AUTO_INSTALL':'1'},{'RUSTUP_HOME':'relative'}):
+   with self.assertRaises(AssertionError):qualified_executable(['cargo'],{**env,**values})
+ def test_unqualified_proxy_hash_and_missing_pinned_binary_rejected(self):
+  from build_guard import qualified_executable
+  base,shim,_,env=self.fixture();(shim/'cargo.exe').write_bytes(b'MZ'+b'different synthetic fixture'*8)
+  with self.assertRaisesRegex(AssertionError,'UNQUALIFIED_RUSTUP_PROXY'):qualified_executable(['cargo'],env)
+  with self.assertRaises(FileNotFoundError):qualified_executable(['rustc'],{**env,'RUSTUP_HOME':str(base/'missing')})
+ def test_file_replacement_and_denial_fail_closed(self):
+  from build_guard import executable_snapshot
+  from unittest.mock import patch
+  import types,stat
+  _,shim,_,env=self.fixture();target=shim/'cargo.exe';original=pathlib.Path.lstat;calls=[0]
+  def changed(p):
+   row=original(p)
+   if p==target:
+    calls[0]+=1
+    if calls[0]>1:return types.SimpleNamespace(st_dev=row.st_dev,st_ino=row.st_ino+1,st_size=row.st_size,st_mtime_ns=row.st_mtime_ns,st_mode=row.st_mode,st_reparse_tag=0)
+   return row
+  with patch.object(pathlib.Path,'lstat',changed):
+   with self.assertRaisesRegex(AssertionError,'IDENTITY_CHANGED'):executable_snapshot(target)
+  with patch.object(pathlib.Path,'lstat',side_effect=PermissionError(5,'synthetic')):
+   with self.assertRaises(PermissionError):executable_snapshot(target)
+ def test_reparse_candidate_and_ancestor_are_rejected(self):
+  from build_guard import executable_snapshot
+  from unittest.mock import patch
+  import types
+  _,shim,_,env=self.fixture();target=shim/'cargo.exe';original=pathlib.Path.lstat
+  for changed in (target,shim):
+   def link(p):
+    row=original(p)
+    return types.SimpleNamespace(st_mode=row.st_mode,st_file_attributes=0x400,st_reparse_tag=0xa000000c) if p==changed else row
+   with patch.object(pathlib.Path,'lstat',link):
+    with self.assertRaisesRegex(AssertionError,'LINK_OR_TYPE'):executable_snapshot(target)
+ def test_supervision_is_sampled_during_input_hashing(self):
+  from build_guard import qualified_executable
+  _,_,_,env=self.fixture();samples=[];qualified_executable(['cargo'],env,lambda:samples.append(1));self.assertGreaterEqual(len(samples),6)
+ def test_absolute_calls_remain_explicit_and_other_launchers_not_broadened(self):
+  from build_guard import qualified_executable,Guard
+  import inspect
+  command=[str(pathlib.Path(__file__).absolute()),'argument'];self.assertEqual(qualified_executable(command,{}),(command,None))
+  text=inspect.getsource(Guard.run);self.assertLess(text.index('qualified_executable('),text.index('proc.start('));self.assertIn('executableBinding',text)
+
+if __name__=='__main__':unittest.main()

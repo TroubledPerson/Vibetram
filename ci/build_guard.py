@@ -33,6 +33,65 @@ def limits(free,used,elapsed,log):
  if elapsed>MAX_SECONDS:return 'TRIAL_DEADLINE'
  if log>MAX_LOG:return 'COMMAND_LOG_THRESHOLD'
  return None
+
+RUST_TOOLCHAIN='1.95.0-x86_64-pc-windows-msvc'
+def executable_snapshot(path,sample=None):
+ """Fresh no-follow identity, hash and regular ancestry for a selected input.
+ This is a checked launch binding, not protection from every filesystem race.
+ Existing pinned compiler-version checks remain mandatory after resolution.
+ """
+ p=pathlib.Path(path);assert p.is_absolute() and '..' not in p.parts and len(p.parts)<=32,'EXECUTABLE_ABSOLUTE_SCOPE'
+ chain=[]
+ for directory in reversed(p.parents):
+  m=directory.lstat();assert stat.S_ISDIR(m.st_mode) and not getattr(m,'st_file_attributes',0)&0x400 and not getattr(m,'st_reparse_tag',0),'EXECUTABLE_ANCESTOR_LINK_OR_TYPE'
+  chain.append((directory,(m.st_dev,m.st_ino,m.st_mode,getattr(m,'st_reparse_tag',0))))
+ before=p.lstat();assert stat.S_ISREG(before.st_mode) and not getattr(before,'st_file_attributes',0)&0x400 and not getattr(before,'st_reparse_tag',0),'EXECUTABLE_LINK_OR_TYPE'
+ assert 64<=before.st_size<=64*1024**2,'EXECUTABLE_SIZE_BOUND'
+ with p.open('rb') as f:
+  assert f.read(2)==b'MZ','EXECUTABLE_PE_HEADER';f.seek(0);digest=hashlib.sha256();last=time.monotonic()
+  if sample:sample()
+  while chunk:=f.read(1024**2):
+   digest.update(chunk)
+   if sample and time.monotonic()-last>=.1:sample();last=time.monotonic()
+  digest=digest.hexdigest()
+  if sample:sample()
+ after=p.lstat();key=lambda m:(m.st_dev,m.st_ino,m.st_size,m.st_mtime_ns,m.st_mode,getattr(m,'st_reparse_tag',0))
+ assert key(before)==key(after),'EXECUTABLE_IDENTITY_CHANGED'
+ for directory,identity in chain:
+  m=directory.lstat();assert (m.st_dev,m.st_ino,m.st_mode,getattr(m,'st_reparse_tag',0))==identity and not getattr(m,'st_file_attributes',0)&0x400,'EXECUTABLE_ANCESTOR_CHANGED'
+ return {'identity':[after.st_dev,after.st_ino],'bytes':after.st_size,'modifiedNs':after.st_mtime_ns,'sha256':digest}
+
+def qualified_executable(args,env,sample=None):
+ """Only existing Rust bare entry points may resolve through clean PATH.
+ Reject a different/ambiguous binary rather than searching the parent process
+ environment, current directory, PATHEXT scripts, or downloading a tool.
+ """
+ assert args,'EMPTY_COMMAND';name=str(args[0])
+ if pathlib.Path(name).is_absolute():return list(args),None
+ assert name.lower() in ('cargo','rustc','cargo.exe','rustc.exe'),'UNQUALIFIED_BARE_EXECUTABLE'
+ assert env.get('RUSTUP_TOOLCHAIN')==RUST_TOOLCHAIN and env.get('RUSTUP_AUTO_INSTALL')=='0','PINNED_RUST_ENV_REQUIRED'
+ rustup=pathlib.Path(env.get('RUSTUP_HOME',''));cargo=pathlib.Path(env.get('CARGO_HOME',''))
+ assert rustup.is_absolute() and cargo.is_absolute(),'PINNED_RUST_HOME_REQUIRED'
+ filename=name.lower().removesuffix('.exe')+'.exe';path=env.get('PATH','');parts=[x for x in path.split(os.pathsep) if x]
+ assert path and len(parts)<=256 and all(x and pathlib.Path(x).is_absolute() and '..' not in pathlib.Path(x).parts for x in parts),'QUALIFIED_PATH_REQUIRED'
+ hits={}
+ for directory in parts:
+  candidate=pathlib.Path(directory)/filename
+  try:m=candidate.lstat()
+  except FileNotFoundError:continue
+  assert stat.S_ISREG(m.st_mode) and not getattr(m,'st_file_attributes',0)&0x400 and not getattr(m,'st_reparse_tag',0),'PATH_EXECUTABLE_UNQUALIFIED'
+  hits.setdefault(os.path.normcase(os.path.normpath(str(candidate))),candidate)
+ assert len(hits)==1,'MISSING_OR_AMBIGUOUS_PATH_EXECUTABLE'
+ selected=next(iter(hits.values()));identity=executable_snapshot(selected,sample)
+ pinned=rustup/'toolchains'/RUST_TOOLCHAIN/'bin'/filename;pinned_identity=executable_snapshot(pinned,sample)
+ if os.path.normcase(str(selected))==os.path.normcase(str(pinned)):route='PINNED_NATIVE_ON_PATH'
+ else:
+  # Official rustup multicall proxies are byte-identical to their adjacent
+  # rustup executable. Pinned env selects the installed toolchain, never fetch.
+  proxy=executable_snapshot(selected.with_name('rustup.exe'),sample);assert identity['sha256']==proxy['sha256'],'UNQUALIFIED_RUSTUP_PROXY';route='PINNED_RUSTUP_PROXY_ON_PATH'
+ assert executable_snapshot(selected,sample)==identity and executable_snapshot(pinned,sample)==pinned_identity,'EXECUTABLE_BINDING_CHANGED'
+ return [str(selected),*args[1:]],{'tool':filename,'route':route,'toolchain':RUST_TOOLCHAIN,'selected':identity,'pinned':pinned_identity,'versionRecheckRequired':True}
+
 def clean_env(parent,work):
  keys=('SystemRoot','WINDIR','COMSPEC','PATHEXT','PATH','PROCESSOR_ARCHITECTURE','NUMBER_OF_PROCESSORS','PROGRAMFILES','PROGRAMFILES(X86)','RUSTUP_HOME','CARGO_HOME','RUSTUP_TOOLCHAIN','RUSTUP_AUTO_INSTALL','JAVA_HOME_17_X64','ANDROID_HOME')
  e={k:parent[k] for k in keys if k in parent}
@@ -320,7 +379,8 @@ class Guard:
   try:
    with stdout.open('xb') as a,stderr.open('xb') as b:
     self._log_paths=[stdout,stderr];self._sampler.tick()
-    proc=OwnedProcess();proc.start([str(x) for x in args],cwd or self.root,env or self.env,stdout=a,stderr=b)
+    launch_args,executable_binding=qualified_executable([str(x) for x in args],env or self.env,self._sampler.tick)
+    self._sampler.tick();proc=OwnedProcess();proc.start(launch_args,cwd or self.root,env or self.env,stdout=a,stderr=b)
     next_census=time.monotonic()
     while True:
      assert timeout is None or time.monotonic()-started<=timeout,'COMMAND_DEADLINE'
@@ -335,7 +395,7 @@ class Guard:
    code=proc.returncode;self._command_deadline=None;proc.finish(sampler=self._sampler);assert not proc.cleanup_errors,'OWNED_PROCESS_SUPERVISION_FAILED';proc.close();self.check(stdout.stat().st_size+stderr.stat().st_size)
    assert code==0,'SUBPROCESS_FAILED'
    result=subprocess.CompletedProcess(args,code,stdout.read_text(encoding='utf-8',errors='replace') if capture else None,stderr.read_text(encoding='utf-8',errors='replace') if capture else None)
-   self.commands.append({'stage':index,'tool':label,'exit':code,'seconds':round(time.monotonic()-started,3),'ownedJobTeardown':proc.teardown})
+   self.commands.append({'stage':index,'tool':label,'exit':code,'seconds':round(time.monotonic()-started,3),'ownedJobTeardown':proc.teardown,'executableBinding':executable_binding})
    (self.work/'trial-progress.json').write_text(json.dumps(self.report(),indent=2),encoding='utf-8')
    return result
   except BaseException as error:

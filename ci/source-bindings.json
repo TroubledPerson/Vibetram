@@ -161,7 +161,7 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "617341b807216883dc21e5be62090dff5ebc079fb54d711d9e32eeba4f1ab73a"
+    "sha256": "c427323bb59c6ae860bf0c30a253f9d09d9828b5baf5668ab78b3bc4e13ee951"
   },
   {
     "path": "ci/census_supervisor.py",
@@ -245,7 +245,7 @@
   },
   {
     "path": "ci/test_build_guard.py",
-    "sha256": "ec5b0bb8fdcfe681daeaf5df44eb0491d4196f6cb99cb95be934eb113b718afc"
+    "sha256": "59002a34ee1219d268db458c2abafc747b3b7163c2219c3a03646e358130ccda"
   },
   {
     "path": "ci/test_census_process_fixture.py",
