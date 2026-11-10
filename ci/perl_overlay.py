@@ -398,6 +398,11 @@ sub import {
  die "prefix outside owned work" unless index(lc($posix),lc($root)."/")==0;
  my $relative=substr($posix,length($root)+1);
  die "unexpected OpenSSL install scope" unless $relative eq "install" || $relative =~ m{^target/aarch64-linux-android/ci-test/build/openssl-sys-[a-f0-9]{1,64}/out/openssl-build/install$};
+ if (defined $ENV{VIBETRAM_OPENSSL_ARFLAGS}) {
+  die "unqualified OpenSSL archive operation" unless $ENV{VIBETRAM_OPENSSL_ARFLAGS} eq "crs";
+  die "unexpected OpenSSL inherited operation" if defined($ENV{ARFLAGS}) && $ENV{ARFLAGS} ne "crs";
+  $ENV{ARFLAGS}="crs"; # pinned Configure writes its own Makefile operation
+ }
  $ARGV[$prefix[0]]="--prefix=".$posix;
  print STDERR "VIBETRAM_PINNED_OPENSSL_PREFIX_QUALIFIED\n";
 }
@@ -511,6 +516,8 @@ def qualify_make_link(guard,env,work,out,src,perl,elf_validator):
   obj=(smoke/"probe object.o").read_bytes();assert obj[:6]==b"\x7fELF\x02\x01" and int.from_bytes(obj[16:18],"little")==1 and int.from_bytes(obj[18:20],"little")==183,"SMOKE_OBJECT_TARGET"
   archive=smoke/"probe archive.a";assert archive.read_bytes().startswith(b"!<arch>\n"),"SMOKE_ARCHIVE_FORMAT"
   members=guard.run([tools/"llvm-ar.exe","t",archive],env=cross,capture=True,timeout=20).stdout.splitlines();assert members==["probe object.o"],"SMOKE_ARCHIVE_MEMBER"
+  from archive_policy import qualify as qualify_cc_archive
+  results["cargoArchiver"]=qualify_cc_archive(guard,cross,tools,smoke)
   representative=representative_openssl_recipe(guard,cross,src,make)
   results.update(state="PASS_INSTALLED_MAKE_SHELL_ANDROID_ARCHIVE_LINK",tools={name:{"path":str(tool),"sha256":hashlib.sha256(tool.read_bytes()).hexdigest()} for name,tool in (("make",make),("shell",shell),("lld",lld))},versions=versions,nativeSHA256=hashlib.sha256(native.read_bytes()).hexdigest(),needed=needed,elf16KiBAligned=True,fixtureExecuted=False,makeWorkers=1,hostLinkerPreserved=True,sourceSHA256=source_hash,pathConversion=conversion,quotedNativePathsWithSpaces=True,objectSHA256=hashlib.sha256(obj).hexdigest(),archiveSHA256=hashlib.sha256(archive.read_bytes()).hexdigest(),representativeOpenSSL=representative,artifacts={name:smoke_artifact_identity(smoke/name) for name in ("probe source.c","probe object.o","probe archive.a","probe native.so")})
  def step(i):
@@ -527,7 +534,7 @@ def configure_environment(env,ndk,tools,perl):
  from build_guard import android_env
  from openssl_probe import PHYSICAL_SDK
  cross=android_env(env,ndk)
- cross.update(ANDROID_HOME=str(PHYSICAL_SDK),ANDROID_SDK_ROOT=str(PHYSICAL_SDK),OPENSSL_SRC_PERL=str(perl),PERL=str(perl),CC="clang.exe",CFLAGS="--target=aarch64-linux-android29",AR="llvm-ar.exe",ARFLAGS="crs",RANLIB="llvm-ranlib.exe")
+ cross.update(ANDROID_HOME=str(PHYSICAL_SDK),ANDROID_SDK_ROOT=str(PHYSICAL_SDK),OPENSSL_SRC_PERL=str(perl),PERL=str(perl),CC="clang.exe",CFLAGS="--target=aarch64-linux-android29",AR="llvm-ar.exe",ARFLAGS="crs",RANLIB="llvm-ranlib.exe",VIBETRAM_OPENSSL_ARFLAGS="crs")
  # Basenames avoid shell parsing of spaces; actual PATH lookup is identity-checked
  # against the leased physical NDK files immediately before Configure.
  from host_linker import direct_msvc_linker

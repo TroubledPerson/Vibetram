@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "ec06f1a84569462f82ee614ee682ac7d93f687897cb135a39dd2eafdd550a1fb"
+    "sha256": "8eeafe34c94cc8ad65aa172ad7ae57330c79ab84c07d096e886000557f4c45e7"
   },
   {
     "path": ".gitignore",
@@ -160,8 +160,12 @@
     "sha256": "8ac512328aac101822a2be1241a9857769f87d04772d862e2faedc6cde75fe91"
   },
   {
+    "path": "ci/archive_policy.py",
+    "sha256": "d20955730b9d4105af6a44091d76c7c5efb7e4f67fa9162890a4dddb8be4dd8b"
+  },
+  {
     "path": "ci/build_guard.py",
-    "sha256": "caa778572cb03664dfe53b0c40d3e17d3c7694a6adb983bd665a92fc52c3cad0"
+    "sha256": "c379000832dc0ca862b22b2e39adda59c58590315042723d12e72cc2096279e9"
   },
   {
     "path": "ci/census_supervisor.py",
@@ -177,7 +181,11 @@
   },
   {
     "path": "ci/cloud_build.py",
-    "sha256": "2d160f7508c82d4d2a2edf67bd2ffd9b6a0cb9e7605089571d6f4dbcdaf79d8f"
+    "sha256": "dde94d57d7e7baff54eea5abab29ed912b3601527597d0be9607076b59b26fbe"
+  },
+  {
+    "path": "ci/failure_lifecycle.py",
+    "sha256": "c08e92575d6d253db045520d37e3b00a644c547d22fa488102d864bc8ad56e3a"
   },
   {
     "path": "ci/host_linker.py",
@@ -217,7 +225,7 @@
   },
   {
     "path": "ci/perl_overlay.py",
-    "sha256": "45b27883e94d3edd30cdb563c5ea056da93c7a875ae6f349eca74267f48325da"
+    "sha256": "f4d9c7525fff2a47d5cb179455ccf9065eda80f518de0f09cdd066adaf451369"
   },
   {
     "path": "ci/perl_prerequisites.py",
@@ -256,6 +264,10 @@
     "sha256": "d668060e31c37557c365632fb37eeb3f323e9960665597b1faf0bd466639d13c"
   },
   {
+    "path": "ci/test_archive_lifecycle.py",
+    "sha256": "f9ef22158a430d98f16c069c8924d399424ef7ab36d92ddc178cbab8e1fcb167"
+  },
+  {
     "path": "ci/test_build_guard.py",
     "sha256": "59002a34ee1219d268db458c2abafc747b3b7163c2219c3a03646e358130ccda"
   },
@@ -273,7 +285,7 @@
   },
   {
     "path": "ci/test_host_linker.py",
-    "sha256": "77f3e36b15b24536e11bfd75d90a986a8045d2f1108315548740a5a45123d46c"
+    "sha256": "aee66db2ad662542a2f8e91c517e28d197dd2c9864ac61676b570933e76b48e5"
   },
   {
     "path": "ci/test_lld_binding.py",

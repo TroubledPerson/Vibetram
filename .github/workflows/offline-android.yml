@@ -112,6 +112,9 @@
         },
         {
           "run": "python -B ci/test_host_linker.py"
+        },
+        {
+          "run": "python -B ci/test_archive_lifecycle.py"
         }
       ]
     },

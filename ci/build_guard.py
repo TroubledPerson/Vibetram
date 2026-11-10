@@ -391,7 +391,7 @@ class Guard:
  def run(self,args,cwd=None,env=None,capture=False,timeout=None):
   self.check();self.count+=1;index=self.count;label=pathlib.Path(str(args[0])).name
   stdout=self.work/f'command-{index:02d}.stdout.log';stderr=self.work/f'command-{index:02d}.stderr.log'
-  print(f'TRIAL_STAGE {index} {label}',flush=True);proc=None;started=time.monotonic();last=started;code=None;self._command_deadline=None if timeout is None else started+timeout;self._sampler=Sampler(self._resource_sample)
+  print(f'TRIAL_STAGE {index} {label}',flush=True);proc=None;started=time.monotonic();last=started;code=None;preclose_images=None;close_attempted=False;primary_error=None;self._command_deadline=None if timeout is None else started+timeout;self._sampler=Sampler(self._resource_sample)
   try:
    with stdout.open('xb') as a,stderr.open('xb') as b:
     self._log_paths=[stdout,stderr];self._sampler.tick()
@@ -414,44 +414,53 @@ class Guard:
    from msvc_probe import compiler_completion
    compiler_completion(proc,launch_args,env or self.env,self.work,stdout,stderr,self._sampler)
    proc.finish(sampler=self._sampler);assert not proc.cleanup_errors,'OWNED_PROCESS_SUPERVISION_FAILED'
-   verify_runtime(env or self.env,self._sampler.tick);proc.close();self.check(stdout.stat().st_size+stderr.stat().st_size)
+   verify_runtime(env or self.env,self._sampler.tick);self.check(stdout.stat().st_size+stderr.stat().st_size)
    assert code==0,'SUBPROCESS_FAILED'
    result=subprocess.CompletedProcess(args,code,stdout.read_text(encoding='utf-8',errors='replace') if capture else None,stderr.read_text(encoding='utf-8',errors='replace') if capture else None)
+   from failure_lifecycle import capture_images
+   from host_linker import failure_members
+   preclose_images=capture_images(proc,lambda p:failure_members(p,env or self.env,self._sampler))
+   assert preclose_images and all(r.get('heldIdentityVerified') is True for r in preclose_images),'PRE_CLOSE_OWNED_IMAGE_METADATA_INCOMPLETE'
+   close_attempted=True;proc.close()
    self.commands.append({'stage':index,'tool':label,'exit':code,'seconds':round(time.monotonic()-started,3),'ownedJobTeardown':proc.teardown,'executableBinding':executable_binding})
    (self.work/'trial-progress.json').write_text(json.dumps(self.report(),indent=2),encoding='utf-8')
    return result
   except BaseException as error:
-   self._command_deadline=None
-   teardown=[];owned_failure_metadata=[]
-   if proc is not None:
-    from host_linker import failure_members
-    try:owned_failure_metadata=failure_members(proc,env or self.env,self._sampler)
-    except BaseException as metadata_error:owned_failure_metadata=[{'metadataCaptureFailureClass':type(metadata_error).__name__,'complete':False,'normalCompletionQualified':False}]
-   if proc is not None:
-    try:proc.finish(terminate=True,sampler=self._sampler)
-    except BaseException as cleanup:teardown.append(type(cleanup).__name__)
-   proof=proc.teardown if proc is not None else None
-   if proof is None:proof=getattr(error,'owned_teardown',{'treeState':'NO_PROCESS_STARTED' if proc is None else 'UNKNOWN_OWNED_JOB_STATE','processTreeExitIndependentlyVerified':False})
-   if proc is not None:
-    teardown.extend(proc.cleanup_errors)
-    try:proc.close()
-    except BaseException as cleanup:teardown.append(type(cleanup).__name__)
-   if not teardown and self.pending_reparse and self.reparse_result is None:
-    root,relative=self.pending_reparse
-    self.reparse_result=capture_reparse_metadata(root,relative)
-    self.reparse_result.update(commandStage=index,observedDuringTool=label,phaseProcessId=proc.pid if proc else None,creatorProcessProven=False,childStoppedBeforeMetadata=proc is None or proc.poll() is not None)
-    payload=json.dumps(self.reparse_result,indent=2);assert len(payload.encode())<=65536 and shutil.disk_usage(self.root).free>=MIN_FREE,'METADATA_REPORT_BOUND'
-    with (self.work/'reparse-stop.json').open('x',encoding='utf-8') as f:f.write(payload)
-    print('REPARSE_METADATA_STOP '+json.dumps(self.reparse_result),flush=True)
-   tails={}
+   primary_error=error;self._command_deadline=None
+   from failure_lifecycle import freeze_failure
+   from host_linker import failure_members
+   facts=freeze_failure(proc,lambda p:failure_members(p,env or self.env,self._sampler),self._sampler,code,preclose_images);close_attempted=proc is not None
+   proof=facts['teardownDiagnostic']
+   if not proof.get('processTreeExitIndependentlyVerified') and getattr(error,'owned_teardown',None):proof=error.owned_teardown;facts['teardownDiagnostic']=proof
+   diagnostics=[];tails={}
+   try:
+    if not facts['teardownFailures'] and self.pending_reparse and self.reparse_result is None:
+     root,relative=self.pending_reparse;self.reparse_result=capture_reparse_metadata(root,relative)
+     self.reparse_result.update(commandStage=index,observedDuringTool=label,phaseProcessId=facts['phaseProcessId'],creatorProcessProven=False,childStoppedBeforeMetadata=facts['knownParentExitObserved'])
+     payload=json.dumps(self.reparse_result,indent=2);assert len(payload.encode())<=65536 and shutil.disk_usage(self.root).free>=MIN_FREE,'METADATA_REPORT_BOUND'
+     with (self.work/'reparse-stop.json').open('x',encoding='utf-8') as f:f.write(payload)
+     print('REPARSE_METADATA_STOP '+payload,flush=True)
+   except BaseException as diagnostic:diagnostics.append({'stage':'reparse-report','failureClass':type(diagnostic).__name__})
    for name,path in [('stdoutTail',stdout),('stderrTail',stderr)]:
-    if path.exists():
-     with path.open('rb') as f:f.seek(max(0,path.stat().st_size-16000));tails[name]=redact(f.read().decode('utf-8',errors='replace'))
-   report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,'teardownFailures':teardown,'teardownDiagnostic':proof,'ownedFailureImages':owned_failure_metadata,'knownParentExitObserved':proc is None or proc.poll() is not None,'knownParentExitCode':None if proc is None else proc.poll(),'processTreeExitIndependentlyVerified':proof['processTreeExitIndependentlyVerified'],'censusWorkerTeardown':getattr(error,'census_teardown',None),'category':str(error)[:200],**tails}
-   (self.work/'failure-summary.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
-   print(json.dumps(report,indent=2),flush=True)
+    try:
+     if path.exists():
+      with path.open('rb') as f:f.seek(max(0,path.stat().st_size-16000));tails[name]=redact(f.read().decode('utf-8',errors='replace'))
+    except BaseException as diagnostic:diagnostics.append({'stage':name,'failureClass':type(diagnostic).__name__})
+   try:
+    report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,**facts,'diagnosticFailures':diagnostics,'processTreeExitIndependentlyVerified':proof.get('processTreeExitIndependentlyVerified',False),'censusWorkerTeardown':getattr(error,'census_teardown',None),'category':str(error)[:200],**tails}
+    (self.work/'failure-summary.json').write_text(json.dumps(report,indent=2),encoding='utf-8');print(json.dumps(report,indent=2),flush=True)
+   except BaseException as diagnostic:
+    error.add_note('FAILURE_REPORT_FAILED:'+type(diagnostic).__name__)
+    try:print(json.dumps({'state':'FAILURE_REPORT_INCOMPLETE','primaryFailureClass':type(error).__name__,'exit':code,'failedStage':index,'teardownDiagnostic':proof,'teardownFailures':facts['teardownFailures'],'diagnosticFailureClass':type(diagnostic).__name__}),flush=True)
+    except BaseException:pass
    raise
   finally:
-   if proc is not None:proc.close()
+   if proc is not None and not close_attempted:
+    try:proc.close()
+    except BaseException as cleanup:
+     if primary_error is None:raise
+     primary_error.add_note('FINAL_OWNED_CLOSE_FAILED:'+type(cleanup).__name__)
+     try:print('FINAL_OWNED_CLOSE_FAILED '+type(cleanup).__name__,flush=True)
+     except BaseException:pass
    if self._sampler:self.supervision_samples+=self._sampler.count;self.supervision_max_gap=max(self.supervision_max_gap,self._sampler.max_gap)
    self._sampler=None;self._command_deadline=None

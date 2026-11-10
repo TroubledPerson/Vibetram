@@ -65,7 +65,7 @@ class Tests(unittest.TestCase):
   e={'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER':'exact-link'};a=h.tiny_rust_arguments(pathlib.Path('tiny.rs'),pathlib.Path('tiny.exe'),e);self.assertEqual(a,['rustc','--edition','2024','--target','x86_64-pc-windows-msvc','-C','linker=exact-link','tiny.rs','-o','tiny.exe'])
  def test_integration_order_and_boundaries(self):
   self.assertLess(SOURCES['ci/msvc_env.py'].index("out['compiledTinyFixtures']=1"),SOURCES['ci/msvc_env.py'].index('configure_lld(env,guard,work)'))
-  g=SOURCES['ci/build_guard.py'];self.assertLess(g.index('verify_runtime(env or self.env,self._sampler.tick)'),g.index('proc.start(launch_args'));self.assertLess(g.index('owned_failure_metadata=failure_members'),g.index('proc.finish(terminate=True,sampler=self._sampler)'));self.assertIn("'ownedFailureImages':owned_failure_metadata",g)
+  g=SOURCES['ci/build_guard.py'];self.assertLess(g.index('verify_runtime(env or self.env,self._sampler.tick)'),g.index('proc.start(launch_args'));self.assertIn('facts=freeze_failure(',g);self.assertIn("'teardownDiagnostic'",g)
   for fn in ('configure_environment','qualify_make_link','prepare_cargo_runtime_source'):
    tree=ast.parse(SOURCES['ci/perl_overlay.py']);node=next(x for x in tree.body if isinstance(x,ast.FunctionDef) and x.name==fn);self.assertIn('direct_msvc_linker',ast.unparse(node))
  def fake_proc(self):

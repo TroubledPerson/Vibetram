@@ -84,7 +84,8 @@ def main(overlay_probe=False,configure_probe=False,make_probe=False):
   expected=[n for n in names if case in n and 'phone_realtime' not in n and 'stdio_driver' not in n];assert len(expected)>=minimum,'REQUIRED_PRODUCTION_TESTS_NOT_COLLECTED'
   result=run([hostexe,case,'--skip','phone_realtime','--skip','stdio_driver','--test-threads=1'],env=ENV,capture=True)
   count=test_count(result.stdout);assert count==len(expected),'COLLECTED_EXECUTED_TEST_COUNT_MISMATCH';suite.append({'filter':case,'passed':count})
- cross=build_android_environment(runtime_env,ndkroot,ndk,qualified_perl)
+ from archive_policy import cargo_environment
+ cross=cargo_environment(build_android_environment(runtime_env,ndkroot,ndk,qualified_perl))
  built=run(['cargo','test','--locked','--profile','ci-test','--lib','-p','codex-app-server-transport','--target','aarch64-linux-android','--no-run','--message-format=json-render-diagnostics'],cwd=ROOT/'codex-rs',env=cross,capture=True)
  executable=artifact(built.stdout);assert executable.is_file()
  native=WORK/'libvibetramoffline.so';shutil.copyfile(executable,native);run([ndk/'llvm-strip.exe','--strip-unneeded',native]);elf_check(native.read_bytes())
