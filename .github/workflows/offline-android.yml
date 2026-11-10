@@ -109,6 +109,9 @@
         },
         {
           "run": "python -B ci/test_lld_binding.py"
+        },
+        {
+          "run": "python -B ci/test_host_linker.py"
         }
       ]
     },

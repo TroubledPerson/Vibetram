@@ -493,7 +493,8 @@ def qualify_make_link(guard,env,work,out,src,perl,elf_validator):
  cross=build_android_environment(env,ndk,tools,perl);results={};leases={}
  def execute():
   assert pathlib.Path(shutil.which("make.exe",path=cross["PATH"]) or "")==make,"WRONG_SELECTED_MAKE"
-  linker=env.get("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER");assert linker and pathlib.Path(shutil.which("link.exe",path=cross["PATH"]) or "")==pathlib.Path(linker),"HOST_LINKER_PATH_COLLISION"
+  from host_linker import direct_msvc_linker
+  linker=direct_msvc_linker(env);assert linker and pathlib.Path(shutil.which("link.exe",path=cross["PATH"]) or "")==pathlib.Path(linker),"HOST_LINKER_PATH_COLLISION"
   versions={name:guard.run([tool,"--version"],env=cross,capture=True,timeout=30).stdout.strip()[:2048] for name,tool in (("make",make),("shell",shell),("lld",lld))}
   assert versions["make"].startswith("GNU Make ") and "GNU bash" in versions["shell"] and "LLD" in versions["lld"],"UNEXPECTED_BUILD_TOOL_VERSION"
   smoke=work/"tool-smoke space";smoke.mkdir();(smoke/"probe source.c").write_text("int vibetram_offline_link_probe(void) { return 7; }\n",encoding="ascii")
@@ -529,7 +530,8 @@ def configure_environment(env,ndk,tools,perl):
  cross.update(ANDROID_HOME=str(PHYSICAL_SDK),ANDROID_SDK_ROOT=str(PHYSICAL_SDK),OPENSSL_SRC_PERL=str(perl),PERL=str(perl),CC="clang.exe",CFLAGS="--target=aarch64-linux-android29",AR="llvm-ar.exe",ARFLAGS="crs",RANLIB="llvm-ranlib.exe")
  # Basenames avoid shell parsing of spaces; actual PATH lookup is identity-checked
  # against the leased physical NDK files immediately before Configure.
- host=env.get("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER")
+ from host_linker import direct_msvc_linker
+ host=direct_msvc_linker(env)
  prefixes=[str(tools)]+([str(pathlib.Path(host).parent)] if host else [])+[str(perl.parent)]
  cross["PATH"]=os.pathsep.join(prefixes+[env["PATH"]])
  if env.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1":cross["PERL"]="perl.exe"
@@ -667,7 +669,8 @@ def qualify_prepared_runtime(guard,env,work,out,src,configure=True):
 def prepare_cargo_runtime_source(guard,env,work,out):
  from openssl_probe import ROOT,PREFIX
  assert owned_pair(ROOT,work,out) and work==ROOT/"ci-work","CARGO_RUNTIME_OWNED_SCOPE"
- assert env.get("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"),"QUALIFIED_HOST_LINKER_REQUIRED"
+ from host_linker import direct_msvc_linker
+ assert direct_msvc_linker(env),"QUALIFIED_HOST_LINKER_REQUIRED"
  prepared=env.copy();prepared["VIBETRAM_OPENSSL_CARGO_BRIDGE"]="1"
  guard.run([sys.executable,"-B",ROOT/"ci/openssl_probe.py","--materialize",work],env=prepared,timeout=180)
  return prepared,work/"crate"/PREFIX/"openssl"

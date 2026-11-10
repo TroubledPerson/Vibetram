@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "e668e4a6685d964b25e9560262dd3a77c68221aa5bcd4218f0971a72c320f929"
+    "sha256": "ec06f1a84569462f82ee614ee682ac7d93f687897cb135a39dd2eafdd550a1fb"
   },
   {
     "path": ".gitignore",
@@ -161,7 +161,7 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "b2d1349232f48851a6119be210cfa6ae987b818fee1e18772e8bc6703661dc77"
+    "sha256": "caa778572cb03664dfe53b0c40d3e17d3c7694a6adb983bd665a92fc52c3cad0"
   },
   {
     "path": "ci/census_supervisor.py",
@@ -180,6 +180,10 @@
     "sha256": "2d160f7508c82d4d2a2edf67bd2ffd9b6a0cb9e7605089571d6f4dbcdaf79d8f"
   },
   {
+    "path": "ci/host_linker.py",
+    "sha256": "a14add502f661f3f64293c855649b7a53033d9044d2a0c52bdbec503cec4686f"
+  },
+  {
     "path": "ci/lld_probe.py",
     "sha256": "4dab047f8faabd655aa2f3f418f51dde9cba0b0528714125586649aaf58a3d43"
   },
@@ -189,7 +193,7 @@
   },
   {
     "path": "ci/msvc_env.py",
-    "sha256": "3b0d248b58c7ee1382795d711b76c06efede02a6c2f300336dff2c3086d298f7"
+    "sha256": "a6a39a18e5ea83f90b61af4f6ec4a3f03fab5f22a8cbaeb96e5096bac6147f4a"
   },
   {
     "path": "ci/msvc_pins.py",
@@ -213,7 +217,7 @@
   },
   {
     "path": "ci/perl_overlay.py",
-    "sha256": "058f3b27f47396a1f23d23991983eb239ffcfba9d75678496f1ec788050160db"
+    "sha256": "45b27883e94d3edd30cdb563c5ea056da93c7a875ae6f349eca74267f48325da"
   },
   {
     "path": "ci/perl_prerequisites.py",
@@ -266,6 +270,10 @@
   {
     "path": "ci/test_fixture_privacy.py",
     "sha256": "c8562e3e1c85e4837682da76da62cf3fa18e1fb029feca78808fa35c75c818e6"
+  },
+  {
+    "path": "ci/test_host_linker.py",
+    "sha256": "77f3e36b15b24536e11bfd75d90a986a8045d2f1108315548740a5a45123d46c"
   },
   {
     "path": "ci/test_lld_binding.py",

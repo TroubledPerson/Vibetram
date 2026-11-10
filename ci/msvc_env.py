@@ -211,7 +211,12 @@ def qualify_msvc(base,work,guard):
   run([cl,'/nologo','/WX','/W4','/MT',str(c),'/Fo'+str(work/'tiny-sdk.obj'),'/Fe'+str(cexe)],env,timeout=60);pe_x64(cexe.read_bytes());out['compiledTinyFixtures']=1
   rust=work/'tiny-msvc.rs';rust.write_text('fn main() {}\n',encoding='utf-8');rexe=work/'tiny-msvc.exe'
   version=run(['rustc','--version'],env,timeout=30).stdout.strip();rust_pin(pins,version)
-  run(['rustc','--edition','2024','--target','x86_64-pc-windows-msvc','-C','linker='+str(link),str(rust),'-o',str(rexe)],env,timeout=60);pe_x64(rexe.read_bytes());out['compiledTinyFixtures']=2
+  from host_linker import requested as lld_requested,configure as configure_lld,tiny_rust_arguments
+  if lld_requested():env,out['qualifiedRustHostLinker']=configure_lld(env,guard,work)
+  run(tiny_rust_arguments(rust,rexe,env),env,timeout=60);pe_x64(rexe.read_bytes());out['compiledTinyFixtures']=2
+  if 'qualifiedRustHostLinker' in out:
+   from lld_probe import pe_debug
+   out['qualifiedRustHostLinker']['tinyFixture']=pe_debug(rexe)
   assert time.monotonic()-begin<180,'TINY_MSVC_QUALIFICATION_DEADLINE'
   out.update(state='PASS_INSTALLED_MSVC_X64_AND_WINDOWS_SDK',installation=raw,setupSHA256=hashlib.sha256(setup.read_bytes()).hexdigest(),toolset=exported['VCToolsVersion'],sdkVersion=sdkversion,explicitLinker=str(link),rustVersion=version,libraryInputs=[{'relative':str(p.relative_to(tools if p.is_relative_to(tools) else sdk)),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in required],fixtures=[{'name':p.name,'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in (cexe,rexe)])
   return env,out
