@@ -113,4 +113,47 @@ class RuntimeQualification(unittest.TestCase):
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());job=w["jobs"]["perl-runtime"]
   self.assertEqual(job["permissions"],{"contents":"read"});self.assertIn("[perl-runtime-191]",job["if"]);self.assertEqual(job["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-diagnosis")
 
+
+class ConfigureRuntimeQualification(unittest.TestCase):
+ def test_environment_keeps_physical_sdk_and_overlay(self):
+  from perl_overlay import configure_environment
+  from openssl_probe import PHYSICAL_SDK
+  import pathlib,os
+  tools=PHYSICAL_SDK/"ndk/30.0.16248370/toolchains/llvm/prebuilt/windows-x86_64/bin";perl=pathlib.Path("C:/Program Files/Git/usr/bin/perl.exe")
+  e=configure_environment({"PATH":"original","PERL5LIB":"/job/overlay/lib"},PHYSICAL_SDK/"ndk/30.0.16248370",tools,perl)
+  self.assertEqual(e["PERL5LIB"],"/job/overlay/lib");self.assertEqual(e["ANDROID_HOME"],str(PHYSICAL_SDK));self.assertEqual(e["ANDROID_SDK_ROOT"],str(PHYSICAL_SDK));self.assertTrue(e["PATH"].startswith(str(tools)+os.pathsep));self.assertEqual(e["CC"],"clang.exe");self.assertEqual(e["AR"],"llvm-ar.exe")
+ def test_lookup_uses_real_identity(self):
+  from perl_overlay import configure_lookup_program
+  s=configure_lookup_program();self.assertIn("IPC::Cmd::can_run($tools[$i])",s);self.assertIn("$a[0]==$b[0] && $a[1]==$b[1]",s);self.assertNotIn('system(',s)
+ def configure_fixture(self,lookup_ok=True,cc="clang.exe",cross=""):
+  import pathlib,types,subprocess
+  from unittest.mock import patch
+  from perl_overlay import configure_with_runtime
+  from openssl_probe import PHYSICAL_SDK
+  calls=[]
+  class FakeGuard:
+   def run(self,args,**kw):
+    calls.append([str(x) for x in args])
+    result={"state":"PASS_EXACT_PHYSICAL_NDK_PATH_LOOKUP" if lookup_ok else "WRONG","checks":3,"compilerExecuted":False,"prefix":"/d/a/Vibetram/Vibetram/openssl-probe-work/install"}
+    return subprocess.CompletedProcess(args,0,json.dumps(result) if len(calls)==1 else "synthetic Configure output","")
+  text="PLATFORM=linux-aarch64\nCROSS_COMPILE="+cross+"\nCC=$(CROSS_COMPILE)"+cc+"\nAR=$(CROSS_COMPILE)llvm-ar.exe\nRANLIB=$(CROSS_COMPILE)llvm-ranlib.exe\nCFLAGS=--target=aarch64-linux-android29\n"
+  tools=PHYSICAL_SDK/"ndk/30.0.16248370/toolchains/llvm/prebuilt/windows-x86_64/bin"
+  try:
+   with patch("pathlib.Path.write_text"),patch("pathlib.Path.read_text",return_value=text),patch("pathlib.Path.read_bytes",return_value=text.encode()),patch("pathlib.Path.is_file",return_value=True),patch("pathlib.Path.stat",return_value=types.SimpleNamespace(st_size=len(text))),patch("builtins.print"):
+    result=configure_with_runtime(FakeGuard(),{"PATH":"original","PERL5LIB":"/job/overlay/lib"},pathlib.Path("D:/synthetic/work"),pathlib.Path("D:/synthetic/output"),pathlib.Path("D:/synthetic/source"),pathlib.Path("C:/Program Files/Git/usr/bin/perl.exe"),PHYSICAL_SDK/"ndk/30.0.16248370",tools)
+   return result,calls
+  except AssertionError as error:return error,calls
+ def test_one_configure_no_make(self):
+  result,calls=self.configure_fixture();self.assertEqual(result["state"],"PASS_ACTUAL_CONFIGURE_ONLY_NOT_COMPILED");self.assertEqual(sum("./Configure" in x and "-c" not in x for x in calls),1);self.assertEqual(len(calls),4);self.assertFalse(result["makeRequested"]);self.assertTrue(all(not any(v in ("make","nmake","cargo") for v in row) for row in calls))
+ def test_bad_lookup_stops_before_configure(self):
+  result,calls=self.configure_fixture(lookup_ok=False);self.assertIsInstance(result,AssertionError);self.assertEqual(len(calls),1)
+ def test_wrong_generated_compiler_rejected(self):
+  result,_=self.configure_fixture(cc="other.exe");self.assertIsInstance(result,AssertionError);self.assertIn("TOOL_SELECTION",str(result))
+ def test_nonempty_cross_prefix_rejected(self):
+  result,_=self.configure_fixture(cross="unknown-");self.assertIsInstance(result,AssertionError);self.assertIn("TOOL_SELECTION",str(result))
+ def test_configure_workflow_reuses_qualified_runtime(self):
+  import pathlib
+  w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());job=w["jobs"]["openssl-probe"]
+  self.assertEqual(job["permissions"],{"contents":"read"});self.assertEqual(job["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-configure");self.assertIn("[openssl-probe-191]",job["if"])
+
 if __name__=="__main__":unittest.main()

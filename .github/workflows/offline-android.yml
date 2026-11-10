@@ -315,9 +315,9 @@
           }
         },
         {
-          "name": "Checksum-pinned configure-only Perl qualification",
+          "name": "Qualified pinned Perl runtime plus one actual OpenSSL Configure; no compilation",
           "timeout-minutes": 8,
-          "run": "python -B ci/openssl_probe.py"
+          "run": "python -B ci/perl_overlay.py --runtime-configure"
         },
         {
           "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",

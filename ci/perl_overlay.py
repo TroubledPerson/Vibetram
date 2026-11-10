@@ -253,7 +253,63 @@ def runtime_version_program(requirements):
    body+='{my $m="'+module+'";my $f=$m;$f=~s{::}{/}g;require "$f.pm";$m->VERSION("'+minimum+'");}\n'
  return body+'print "PASS_RUNTIME_MINIMUM_VERSIONS\\n";\n'
 
-def runtime_diagnosis():
+
+def configure_environment(env,ndk,tools,perl):
+ from build_guard import android_env
+ from openssl_probe import PHYSICAL_SDK
+ cross=android_env(env,ndk)
+ cross.update(ANDROID_HOME=str(PHYSICAL_SDK),ANDROID_SDK_ROOT=str(PHYSICAL_SDK),OPENSSL_SRC_PERL=str(perl),PERL=str(perl),CC="clang.exe",CFLAGS="--target=aarch64-linux-android29",AR="llvm-ar.exe",ARFLAGS="crs",RANLIB="llvm-ranlib.exe")
+ # Basenames avoid shell parsing of spaces; actual PATH lookup is identity-checked
+ # against the leased physical NDK files immediately before Configure.
+ cross["PATH"]=str(tools)+os.pathsep+str(perl.parent)+os.pathsep+env["PATH"]
+ return cross
+
+def configure_lookup_program():
+ return r'''use strict;
+use warnings;
+use IPC::Cmd ();
+use JSON::PP;
+my @tools=qw(clang.exe llvm-ar.exe llvm-ranlib.exe);die "tool count" unless @ARGV==@tools+1;
+for my $i (0..$#tools) {
+ my $expected=Cygwin::win_to_posix_path($ARGV[$i],1);
+ my $found=IPC::Cmd::can_run($tools[$i]);die "PATH tool unavailable" unless defined($found);
+ my @a=stat($found);my @b=stat($expected);
+ die "PATH tool identity mismatch" unless @a && @b && $a[0]==$b[0] && $a[1]==$b[1] && $a[7]==$b[7];
+}
+print JSON::PP::encode_json({state=>"PASS_EXACT_PHYSICAL_NDK_PATH_LOOKUP",checks=>3,compilerExecuted=>JSON::PP::false,prefix=>Cygwin::win_to_posix_path($ARGV[3],1)}),chr(10);
+'''
+
+def configure_with_runtime(guard,env,work,out,src,perl,ndk,tools):
+ from openssl_probe import configure_args,PHYSICAL_SDK
+ cross=configure_environment(env,ndk,tools,perl)
+ lookup=work/"configure-tool-lookup.pl";lookup.write_text(configure_lookup_program(),encoding="ascii")
+ found=json.loads(guard.run([perl,lookup,tools/"clang.exe",tools/"llvm-ar.exe",tools/"llvm-ranlib.exe",work/"install"],cwd=src,env=cross,capture=True,timeout=20).stdout)
+ assert set(found)=={"state","checks","compilerExecuted","prefix"} and found["state"]=="PASS_EXACT_PHYSICAL_NDK_PATH_LOOKUP" and found["checks"]==3 and found["compilerExecuted"] is False,"CONFIGURE_LOOKUP_CHECKS"
+ prefix=found["prefix"]
+ assert type(prefix) is str and re.fullmatch(r"/[A-Za-z0-9_./+-]+/openssl-probe-work/install",prefix) and ".." not in pathlib.PurePosixPath(prefix).parts,"CONFIGURE_PREFIX_SCOPE"
+ guard.run([perl,"-c","./Configure"],cwd=src,env=cross,capture=True,timeout=25)
+ guard.run([perl,"-e","require q(./Configurations/unix-checker.pm);"],cwd=src,env=cross,capture=True,timeout=15)
+ command=[str(perl),*configure_args(prefix)]
+ evidence={"argv":command,"environment":{"ANDROID_HOME":cross["ANDROID_HOME"],"ANDROID_SDK_ROOT":cross["ANDROID_SDK_ROOT"],"ANDROID_NDK_HOME":cross["ANDROID_NDK_HOME"],"CC":cross["CC"],"CFLAGS":cross["CFLAGS"],"AR":cross["AR"],"RANLIB":cross["RANLIB"],"PATHPrefix":[str(tools),str(perl.parent)]},"lookup":found,"configureAttempts":1,"makeRequested":False}
+ print("ACTUAL_CONFIGURE_COMMAND "+json.dumps(evidence),flush=True)
+ completed=guard.run(command,cwd=src,env=cross,capture=True,timeout=120)
+ assert completed.returncode==0,"CONFIGURE_EXIT"
+ files={}
+ for name in ("Makefile","configdata.pm"):
+  p=src/name;assert p.is_file() and p.stat().st_size<16*1024**2,"CONFIGURE_OUTPUT_MISSING"
+  files[name]={"bytes":p.stat().st_size,"sha256":hashlib.sha256(p.read_bytes()).hexdigest()}
+ text=(src/"Makefile").read_text(encoding="utf-8")
+ assert "PLATFORM=linux-aarch64" in text and "--target=aarch64-linux-android29" in text,"CONFIGURE_TARGET_CHANGED"
+ fields={}
+ for line in text.splitlines():
+  if re.match(r"^(?:PLATFORM|CROSS_COMPILE|CC|AR|ARFLAGS|RANLIB|CFLAGS|CPPFLAGS|CNF_CFLAGS|CNF_CPPFLAGS|OPTIONS)=",line):
+   key,value=line.split("=",1);assert key not in fields and len(value)<=8192,"CONFIGURE_FIELD_BOUND";fields[key]=value
+ assert fields.get("CROSS_COMPILE")=="" and all(fields.get(key)=="$(CROSS_COMPILE)"+name for key,name in (("CC","clang.exe"),("AR","llvm-ar.exe"),("RANLIB","llvm-ranlib.exe"))),"CONFIGURE_TOOL_SELECTION_CHANGED"
+ evidence.update(state="PASS_ACTUAL_CONFIGURE_ONLY_NOT_COMPILED",exitCode=completed.returncode,files=files,makefileFields=fields,stdout=completed.stdout[-8192:],stderr=completed.stderr[-4096:],compilationRequested=False,compilerVersionQueriesAllowed=True)
+ (out/"actual-configure.json").write_text(json.dumps(evidence,indent=2)+"\n",encoding="utf-8");print("ACTUAL_CONFIGURE_RESULT "+json.dumps(evidence),flush=True)
+ return evidence
+
+def runtime_diagnosis(configure=False):
  from openssl_probe import ROOT,PREFIX,probe_layout,probe_environment,with_physical_ndk_inputs
  from build_guard import Guard,MIN_FREE,MAX_OUTPUT
  from check_source import source_check
@@ -261,7 +317,7 @@ def runtime_diagnosis():
  from ndk_input_metadata import capture_one
  import shutil
  assert os.name=="nt" and os.environ.get("GITHUB_REPOSITORY")=="TroubledPerson/Vibetram" and os.environ.get("GITHUB_REF")=="refs/heads/main"
- event=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text());assert os.environ["GITHUB_EVENT_NAME"]=="push" and "[perl-runtime-191]" in event["head_commit"]["message"]
+ event=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text());assert os.environ["GITHUB_EVENT_NAME"]=="push" and ("[openssl-probe-191]" if configure else "[perl-runtime-191]") in event["head_commit"]["message"]
  source_check(ROOT);work,out,cargo,rustup=probe_layout(ROOT)
  assert not any(p.exists() for p in (work,out,cargo,rustup)),"PRESERVE_RUNTIME_OUTPUTS"
  assert shutil.disk_usage(ROOT).free>=MIN_FREE+MAX_OUTPUT
@@ -299,21 +355,23 @@ def runtime_diagnosis():
  checks=work/"runtime-versions.pl"
  body=runtime_version_program(requirements)
  checks.write_text(body,encoding="ascii");assert guard.run([perl,checks],cwd=src,env=env,capture=True,timeout=30).stdout.strip()=="PASS_RUNTIME_MINIMUM_VERSIONS"
- helper=work/"runtime-helpers.pl";helper.write_text(runtime_helper_program(),encoding="ascii");results={}
+ helper=work/"runtime-helpers.pl";helper.write_text(runtime_helper_program(),encoding="ascii");results={};configuration={}
  def actual(ndk,tools):
   def run_helpers():
    assert hashlib.sha256(perl.read_bytes()).hexdigest()==GIT_PERL_SHA,"RUNTIME_PERL_IDENTITY"
    results.update(json.loads(guard.run([perl,helper,perl,tools/"clang.exe",tools/"llvm-ar.exe",tools/"llvm-ranlib.exe"],cwd=work,env=env,capture=True,timeout=30).stdout))
    assert results["state"]=="PASS_ACTUAL_COMPILER_DISCOVERY_HELPERS" and results["checks"]==10 and results["makeMakerVersion"]=="7.76","RUNTIME_ACTUAL_HELPERS_FAILED"
+   if configure:configuration.update(configure_with_runtime(guard,env,work,out,src,perl,ndk,tools))
   lease=capture_one(perl.parent,perl,callback=run_helpers)
   assert lease["qualified"] and lease.get("callbackSucceeded"),"RUNTIME_INTERPRETER_LEASE"
  with_physical_ndk_inputs(guard,env,out,actual)
- report={"state":"PASS_RUNTIME_DEPENDENCY_AND_HELPER_QUALIFICATION","packages":plan["packages"],"missingProviderCount":len(missing),"preservedInstalledProviderCount":len(providers)-len(missing),"requiredModuleCount":len(required),"moduleClosure":closure["modules"],"helperTests":results,"configureExecuted":False,"compilerExecuted":False,"globalInstallationChanged":False,"limits":"Active Cygwin compiler-discovery helpers and declared runtime prerequisites; not every MakeMaker API or future configure/make/build path","monitor":guard.report()}
+ report={"state":"PASS_RUNTIME_CONFIGURE_ONLY" if configure else "PASS_RUNTIME_DEPENDENCY_AND_HELPER_QUALIFICATION","packages":plan["packages"],"missingProviderCount":len(missing),"preservedInstalledProviderCount":len(providers)-len(missing),"requiredModuleCount":len(required),"moduleClosure":closure["modules"],"helperTests":results,"configureExecuted":configure,"compilationRequested":False,"compilerVersionQueriesAllowed":configure,"configuration":configuration,"globalInstallationChanged":False,"limits":"Active Cygwin compiler-discovery helpers and declared runtime prerequisites; not every MakeMaker API or future configure/make/build path","monitor":guard.report()}
  text=json.dumps(report,indent=2)+"\n";assert len(text.encode())<65536
  (out/"runtime-qualification.json").write_text(text,encoding="utf-8");source_check(ROOT);print(text,flush=True)
 
 if __name__=="__main__":
- if len(sys.argv)==2 and sys.argv[1]=="--runtime-diagnosis":runtime_diagnosis()
+ if len(sys.argv)==2 and sys.argv[1]=="--runtime-configure":runtime_diagnosis(configure=True)
+ elif len(sys.argv)==2 and sys.argv[1]=="--runtime-diagnosis":runtime_diagnosis()
  elif len(sys.argv)==4 and sys.argv[1]=="--runtime-prepare":runtime_prepare(pathlib.Path(sys.argv[2]),pathlib.Path(sys.argv[3]))
  else:
   assert len(sys.argv)==4 and sys.argv[1]=="--prepare"
