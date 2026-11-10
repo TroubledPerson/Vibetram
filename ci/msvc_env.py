@@ -34,6 +34,74 @@ def library_directories(value):
 def pe_x64(data):
  assert data[:2]==b'MZ' and len(data)>=64,'QUALIFICATION_PE_MISSING';at=struct.unpack_from('<I',data,60)[0]
  assert at+6<=len(data) and data[at:at+4]==b'PE\0\0' and struct.unpack_from('<H',data,at+4)[0]==0x8664,'QUALIFICATION_NOT_X64_PE'
+
+def telemetry_setup_contract(text):
+ """Recognize only an explicit empty-variable guard around one async telemetry
+ command. Unknown setup statements never become optional by their filename.
+ Installed-script hash validation is separate and mandatory before using this.
+ """
+ lines=text.splitlines();headers=[]
+ for i,line in enumerate(lines):
+  clean=line.strip().lstrip('@').strip()
+  if re.fullmatch(r'if\s+(?:/i\s+)?"%VSCMD_SKIP_SENDTELEMETRY%"\s*==\s*""\s*\(',clean,re.I) or re.fullmatch(r'if\s+not\s+defined\s+VSCMD_SKIP_SENDTELEMETRY\s*\(',clean,re.I):headers.append(i)
+ assert len(headers)==1,'SETUP_OPTIONAL_GUARD_UNRECOGNIZED'
+ start=headers[0];depth=0;body=[];end=None
+ for i in range(start,min(len(lines),start+24)):
+  line=lines[i];quoted=False;escaped=False
+  for char in line:
+   if escaped:escaped=False;continue
+   if char=='^':escaped=True;continue
+   if char=='"':quoted=not quoted
+   elif not quoted:
+    if char=='(':depth+=1
+    elif char==')':depth-=1
+   assert depth>=0,'SETUP_OPTIONAL_BLOCK_UNBALANCED'
+  assert not quoted and not escaped,'SETUP_OPTIONAL_MULTILINE_COMMAND'
+  body.append(line)
+  if depth==0:end=i;break
+ assert end is not None,'SETUP_OPTIONAL_BLOCK_BOUND'
+ commands=[]
+ for line in body[1:]:
+  clean=line.strip().lstrip('@').strip()
+  if not clean or clean==')' or clean.lower().startswith(('rem ','::')):continue
+  if re.fullmatch(r'if\s+exist\s+"[^"\r\n]+"\s*\(',clean,re.I):continue
+  assert re.match(r'^start\s',clean,re.I),'SETUP_OPTIONAL_UNKNOWN_STATEMENT'
+  assert re.search(r'\bpowershell(?:\.exe)?\b',clean,re.I) and re.search(r'\s-NoProfile\b',clean,re.I),'SETUP_OPTIONAL_NOT_POWERSHELL'
+  assert 'Microsoft.VisualStudio.DevShell.dll'.lower() in clean.lower() and re.search(r'\bSend-VsDevShellTelemetry\s+-NewInstanceType\s+Cmd\b',clean,re.I),'SETUP_OPTIONAL_NOT_DEVSHELL_TELEMETRY'
+  assert not re.search(r'\b(?:cl\.exe|link\.exe|lib\.exe|rustc|cargo|vcvarsall|set\s+(?:path|include|lib))\b',clean,re.I),'SETUP_OPTIONAL_BUILD_WORK_PRESENT'
+  assert not re.search(r'(^|\s)/wait(\s|$)',clean,re.I),'SETUP_OPTIONAL_NOT_ASYNC'
+  command=re.search(r'-Command\s+"(.*)"\s*(?:>\s*nul\s*(?:2>&1)?)?$',clean,re.I);assert command,'SETUP_OPTIONAL_COMMAND_SCHEMA'
+  payload=re.sub(r"'%VSINSTALLDIR%[\\/]*Common7[\\/]Tools[\\/]Microsoft\.VisualStudio\.DevShell\.dll'","'MODULE'",command.group(1),flags=re.I)
+  action=r"Import-Module\s+'MODULE'\s*;\s*Send-VsDevShellTelemetry\s+-NewInstanceType\s+Cmd\s*;?"
+  simple=r'&\s*\{\s*'+action+r'\s*\}'
+  guarded=r"&\s*\{\s*if\s*\(\s*Test-Path\s+'MODULE'\s*\)\s*\{\s*"+action+r'\s*\}\s*\}'
+  assert re.fullmatch(simple,payload,re.I) or re.fullmatch(guarded,payload,re.I),'SETUP_OPTIONAL_PAYLOAD_SCHEMA'
+  commands.append(clean)
+ assert len(commands)==1,'SETUP_OPTIONAL_ASYNC_COMMAND_COUNT'
+ return {'environmentVariable':'VSCMD_SKIP_SENDTELEMETRY','nonemptyValueSkipsBlock':True,'guardStartLine':start+1,'guardEndLine':end+1,'purpose':'Send-VsDevShellTelemetry -NewInstanceType Cmd','module':'Microsoft.VisualStudio.DevShell.dll','asyncCommands':1,'requiredBuildStatementsInBlock':False,'blockSHA256':hashlib.sha256('\n'.join(body).encode()).hexdigest()}
+
+def optional_setup_environment(env,setup,pins=None):
+ """Job-local optional telemetry suppression; never change security settings,
+ system modules, compiler inputs, or the vendor's installed script.
+ """
+ import stat
+ setup=pathlib.Path(setup);assert setup.is_absolute() and setup.name.lower()=='vsdevcmd.bat' and '..' not in setup.parts,'SETUP_SCRIPT_SCOPE'
+ chain=[]
+ for path in [*reversed(setup.parents),setup]:
+  row=path.lstat();assert not getattr(row,'st_file_attributes',0)&0x400 and not getattr(row,'st_reparse_tag',0),'SETUP_SCRIPT_LINK'
+  assert stat.S_ISREG(row.st_mode) if path==setup else stat.S_ISDIR(row.st_mode),'SETUP_SCRIPT_TYPE'
+  chain.append((path,(row.st_dev,row.st_ino,row.st_mode)))
+ before=setup.lstat();assert 0<before.st_size<=65536,'SETUP_SCRIPT_SIZE_BOUND';data=setup.read_bytes();pins=read_pins() if pins is None else pins
+ digest=hashlib.sha256(data).hexdigest();assert digest==pins['setupSHA256'],'QUALIFIED_MSVC_PIN_MISMATCH:setupSHA256'
+ text=data.decode('utf-8-sig')
+ try:contract=telemetry_setup_contract(text)
+ except BaseException as error:
+  error.setup_contract_diagnostic={'setupSHA256':digest,'optionalGuardLines':[{'line':i+1,'guard':line.strip()[:160]} for i,line in enumerate(text.splitlines()) if 'VSCMD_SKIP_SENDTELEMETRY' in line][:4],'telemetryMethodPresent':'Send-VsDevShellTelemetry' in text,'rawScriptNotPublished':True};raise
+ after=setup.lstat();assert (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns),'SETUP_SCRIPT_CHANGED'
+ for path,identity in chain:
+  row=path.lstat();assert (row.st_dev,row.st_ino,row.st_mode)==identity and not getattr(row,'st_file_attributes',0)&0x400 and not getattr(row,'st_reparse_tag',0),'SETUP_SCRIPT_ANCESTOR_CHANGED'
+ result=env.copy();result['VSCMD_SKIP_SENDTELEMETRY']='1';return result,{**contract,'setupSHA256':digest,'installedScriptChanged':False,'securitySettingsChanged':False,'scope':'ONE_SANITIZED_SETUP_CHILD_ENVIRONMENT'}
+
 def qualify_msvc(base,work,guard):
  assert os.name=='nt';begin=time.monotonic();out={'state':'MSVC_QUALIFICATION_PENDING','compiledTinyFixtures':0,'executedFixture':False};result=work/'msvc-qualification.json'
  def run(args,env=base,timeout=60):

@@ -118,4 +118,70 @@ class SetupLifecycleObservation(unittest.TestCase):
    text=(base/'out.log').read_text();self.assertIn('parent complete',text);self.assertIn('late owned output',text);self.assertEqual((base/'err.log').read_bytes(),b'')
   finally:job.close()
 
+
+
+
+class OptionalSetupContract(unittest.TestCase):
+ def text(self,guard='if "%VSCMD_SKIP_SENDTELEMETRY%"=="" (',extra=''):
+  module="'%VSINSTALLDIR%Common7\\Tools\\Microsoft.VisualStudio.DevShell.dll'"
+  return '\n'.join(['REM synthetic optional setup contract',guard,'start /B "" powershell.exe -NoProfile -Command "& {Import-Module '+module+'; Send-VsDevShellTelemetry -NewInstanceType Cmd; }"',extra,')'])
+ def test_empty_variable_guard_recognizes_only_optional_telemetry(self):
+  from msvc_env import telemetry_setup_contract
+  row=telemetry_setup_contract(self.text());self.assertTrue(row['nonemptyValueSkipsBlock']);self.assertEqual(row['asyncCommands'],1);self.assertFalse(row['requiredBuildStatementsInBlock'])
+ def test_not_defined_and_guarded_module_variants(self):
+  from msvc_env import telemetry_setup_contract
+  text=self.text('if not defined VSCMD_SKIP_SENDTELEMETRY (');module="'%VSINSTALLDIR%Common7\\Tools\\Microsoft.VisualStudio.DevShell.dll'";text=text.replace('& {Import-Module','& {if (Test-Path '+module+') {Import-Module').replace('Cmd; }"','Cmd; }}"');self.assertEqual(telemetry_setup_contract(text)['asyncCommands'],1)
+ def test_wrong_guard_polarity_or_duplicate_guards_fail(self):
+  from msvc_env import telemetry_setup_contract
+  for text in [self.text('if defined VSCMD_SKIP_SENDTELEMETRY ('),self.text('if "%VSCMD_SKIP_SENDTELEMETRY%"=="1" ('),self.text()+'\n'+self.text()]:
+   with self.assertRaisesRegex(AssertionError,'GUARD_UNRECOGNIZED'):telemetry_setup_contract(text)
+ def test_build_work_and_extra_powershell_commands_are_rejected(self):
+  from msvc_env import telemetry_setup_contract
+  for text in [self.text(extra='set INCLUDE=required'),self.text().replace('Cmd; }','Cmd; Write-Output required; }'),self.text().replace('Send-VsDevShellTelemetry','Other-RequiredSetup'),self.text().replace('start /B','start /wait')]:
+   with self.assertRaises(AssertionError):telemetry_setup_contract(text)
+ def test_unbalanced_and_multiline_input_are_rejected(self):
+  from msvc_env import telemetry_setup_contract
+  for text in [self.text()[:-1],self.text().replace(' -Command',' ^\n -Command')]:
+   with self.assertRaises(AssertionError):telemetry_setup_contract(text)
+ def fixture(self):
+  import os,uuid,hashlib
+  root=pathlib.Path(os.environ.get('VIBETRAM_TEST_TMP',os.environ.get('RUNNER_TEMP',str(pathlib.Path(__file__).parents[1]/'ci-unit-output'))))/('setup-contract-'+uuid.uuid4().hex);root.mkdir(parents=True);setup=root/'VsDevCmd.bat';setup.write_text(self.text(),encoding='utf-8');return setup,{'setupSHA256':hashlib.sha256(setup.read_bytes()).hexdigest()}
+ def test_job_local_env_change_preserves_inputs_and_script(self):
+  from msvc_env import optional_setup_environment
+  setup,pins=self.fixture();before=setup.read_bytes();env={'PATH':'qualified','INCLUDE':'same','LIB':'same','LIBPATH':'same'};out,contract=optional_setup_environment(env,setup,pins)
+  self.assertEqual(set(out)-set(env),{'VSCMD_SKIP_SENDTELEMETRY'});self.assertEqual(out['VSCMD_SKIP_SENDTELEMETRY'],'1');self.assertEqual({k:out[k] for k in env},env);self.assertNotIn('VSCMD_SKIP_SENDTELEMETRY',env);self.assertEqual(setup.read_bytes(),before);self.assertFalse(contract['securitySettingsChanged'])
+ def test_setup_pin_mismatch_does_not_apply_option(self):
+  from msvc_env import optional_setup_environment
+  setup,pins=self.fixture()
+  with self.assertRaisesRegex(AssertionError,'PIN_MISMATCH'):optional_setup_environment({},setup,{'setupSHA256':'0'*64})
+ def test_access_denial_and_link_do_not_apply_option(self):
+  from msvc_env import optional_setup_environment
+  from unittest.mock import patch
+  import types
+  setup,pins=self.fixture()
+  with patch.object(pathlib.Path,'lstat',side_effect=PermissionError(5,'synthetic')):
+   with self.assertRaises(PermissionError):optional_setup_environment({},setup,pins)
+  original=pathlib.Path.lstat
+  def link(path):
+   row=original(path)
+   return types.SimpleNamespace(st_file_attributes=0x400,st_reparse_tag=0xa000000c,st_mode=row.st_mode) if path==setup else row
+  with patch.object(pathlib.Path,'lstat',link):
+   with self.assertRaisesRegex(AssertionError,'SCRIPT_LINK'):optional_setup_environment({},setup,pins)
+ def test_setup_file_replacement_is_fatal(self):
+  from msvc_env import optional_setup_environment
+  from unittest.mock import patch
+  import types
+  setup,pins=self.fixture();original=pathlib.Path.lstat;calls=[0]
+  def changed(path):
+   row=original(path)
+   if path==setup:
+    calls[0]+=1
+    if calls[0]>=3:return types.SimpleNamespace(st_dev=row.st_dev,st_ino=row.st_ino+1,st_mode=row.st_mode,st_size=row.st_size,st_mtime_ns=row.st_mtime_ns)
+   return row
+  with patch.object(pathlib.Path,'lstat',changed):
+   with self.assertRaisesRegex(AssertionError,'SCRIPT_CHANGED'):optional_setup_environment({},setup,pins)
+ def test_probe_stops_before_compilation_and_requires_pins(self):
+  import inspect,msvc_probe
+  text=inspect.getsource(msvc_probe.setup_only_main);self.assertIn('qualifiedToolPinsVerified',text);self.assertIn('compiledTinyFixtures',text);self.assertIn('optional_setup_environment',text);self.assertIn("pathlib.Path(args[0]).name.lower()=='cl.exe'",text)
+
 if __name__=='__main__':unittest.main()

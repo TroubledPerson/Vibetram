@@ -67,7 +67,7 @@ def owned_image(job,row,sampler=None):
 class SetupOnlyComplete(RuntimeError):pass
 
 def setup_only_main():
- import time,hashlib
+ import time,hashlib,re
  from unittest.mock import patch
  from census_supervisor import OwnedProcess
  from msvc_env import parse_exports
@@ -76,7 +76,7 @@ def setup_only_main():
  source_check(ROOT);work=ROOT/'msvc-probe-work';out=ROOT/'msvc-probe-output';assert not work.exists() and not out.exists();assert shutil.disk_usage(ROOT).free>=MIN_FREE+MAX_OUTPUT
  work.mkdir();out.mkdir()
  for name in ('tmp','home','profile','profile/AppData/Local','profile/AppData/Roaming'):(work/name).mkdir(parents=True,exist_ok=True)
- env=clean_env(os.environ,work);observations=[];captured={}
+ env=clean_env(os.environ,work);observations=[];captured={};contracts=[];optional='[setup-optional-191]' in event['head_commit']['message']
  class ObservedSetup(OwnedProcess):
   def __init__(self):super().__init__();self.setup_target=False
   def start(self,args,cwd,env,**kw):
@@ -90,16 +90,28 @@ def setup_only_main():
    return result
  class SetupGuard(Guard):
   def run(self,args,*a,**kw):
+   if optional and pathlib.Path(args[0]).name.lower()=='cl.exe' and str(work/'tiny-sdk.c') in [str(x) for x in args]:
+    assert captured.get('requiredExportsPresent') and contracts,'SETUP_CONTRACT_NOT_QUALIFIED';raise SetupOnlyComplete('SETUP_ONLY_COMPLETE')
+   if optional and len(args)==4 and pathlib.Path(args[-1])==work/'msvc-setup.cmd':
+    from msvc_env import optional_setup_environment
+    lines=(work/'msvc-setup.cmd').read_text().splitlines();calls=[re.fullmatch(r'call "([^"]+)" -no_logo -arch=x64 -host_arch=x64 >nul',line) for line in lines if line.lower().startswith('call ')]
+    assert len(calls)==1 and calls[0],'SETUP_WRAPPER_CONTRACT'
+    try:kw['env'],contract=optional_setup_environment(kw['env'],pathlib.Path(calls[0].group(1)));contracts.append(contract)
+    except BaseException as error:contracts.append(getattr(error,'setup_contract_diagnostic',{'failureClass':type(error).__name__}));raise
    result=super().run(args,*a,**kw)
    if len(args)==4 and pathlib.Path(args[-1])==work/'msvc-setup.cmd':
     exports=parse_exports(result.stdout);captured.update(requiredExportsPresent=True,x64HostAndTarget=exports['VSCMD_ARG_TGT_ARCH']==exports['VSCMD_ARG_HOST_ARCH']=='x64',stdoutBytes=len(result.stdout.encode()),stdoutSHA256=hashlib.sha256(result.stdout.encode()).hexdigest(),stderrBytes=len(result.stderr.encode()),outputsReadOnlyAfterZeroMemberProof=True)
-    raise SetupOnlyComplete('SETUP_ONLY_COMPLETE')
+    if not optional:raise SetupOnlyComplete('SETUP_ONLY_COMPLETE')
    return result
- guard=SetupGuard(ROOT,work,out,env);report={'state':'STARTED_SETUP_ONLY','compiledAnything':False,'productionCompletionChanged':False,'observations':observations};start=time.monotonic()
+ guard=SetupGuard(ROOT,work,out,env);report={'state':'STARTED_SETUP_ONLY','compiledAnything':False,'productionCompletionChanged':False,'observations':observations,'optionalSetupContract':contracts};start=time.monotonic()
  try:
   with patch('build_guard.OwnedProcess',ObservedSetup):
    try:qualify_msvc(env,work,guard)
-   except SetupOnlyComplete:report.update(state='PASS_SETUP_ONLY_NATURAL_EXIT',captured=captured)
+   except SetupOnlyComplete:
+    if optional:
+     pins=json.loads((work/'msvc-qualification.json').read_text());assert pins.get('qualifiedToolPinsVerified') is True and pins['compiledTinyFixtures']==0,'SETUP_PINNED_INPUTS_NOT_VERIFIED'
+     report.update(pinnedInputsVerifiedBeforeCompile=True,compilerBoundaryStoppedIntentionally=True)
+    report.update(state='PASS_SETUP_ONLY_NATURAL_EXIT',captured=captured)
    else:raise AssertionError('SETUP_PROBE_COMPILATION_BOUNDARY')
  finally:
   report.update(elapsedSeconds=time.monotonic()-start,commands=guard.commands,sampledNotQuota=True)
