@@ -35,6 +35,23 @@ def pe_x64(data):
  assert data[:2]==b'MZ' and len(data)>=64,'QUALIFICATION_PE_MISSING';at=struct.unpack_from('<I',data,60)[0]
  assert at+6<=len(data) and data[at:at+4]==b'PE\0\0' and struct.unpack_from('<H',data,at+4)[0]==0x8664,'QUALIFICATION_NOT_X64_PE'
 
+
+# Exact normalized line identities from the installed script matching
+# qualified-msvc.json, independently compared against a local identical branch.
+# Whole vendor-script hash validation remains mandatory before environment use.
+PINNED_TELEMETRY_LINES=(
+ '19266f8294cc982a757221331f93a192faff9cc442f8dc1f0e37a0874f0cfe3f',
+ 'a83bfa357bed38963c39f95f4137b2f7805094345c2c5696ec3dc523fa459beb',
+ 'c7b598c8e65ffb9f7686be61e83b4185dbb62fa6694857fd665d6e5ab1795cb1',
+ '74462b300bffafa6c9267a0671ca27a108d5775ae889baea87d54b16e1f38a43',
+ 'a483732ea58062ebc3db24cdd241e2188d10da781e576f70d0b555ac9c5f7261',
+ '2a0b603eb2b22dc91d849de29a929aa9b0661577c25c0163c2c41cfad2f8e257',
+ 'ba5ec51d07a4ac0e951608704431d59a02b21a4e951acc10505a8dc407c501ee',
+ 'ba5ec51d07a4ac0e951608704431d59a02b21a4e951acc10505a8dc407c501ee')
+def pinned_telemetry_contract(hashes,start,end):
+ assert tuple(hashes)==PINNED_TELEMETRY_LINES and len(hashes)==8 and end-start==7,'SETUP_PINNED_BRANCH_CHANGED'
+ return {'environmentVariable':'VSCMD_SKIP_SENDTELEMETRY','nonemptyValueSkipsBlock':True,'guardStartLine':start+1,'guardEndLine':end+1,'purpose':'Send-VsDevShellTelemetry -NewInstanceType Cmd','module':'Microsoft.VisualStudio.DevShell.dll','moduleRelativeToPinnedSetupDirectory':True,'moduleReference':'%~dp0','debugVariable':'VSCMD_DEBUG','debugNonemptySynchronousTelemetry':True,'debugEmptyAsynchronousTelemetry':True,'asynchronousPowerShellMajorMinimum':3,'synchronousCommands':1,'asyncCommands':1,'requiredBuildStatementsInBlock':False,'exactNormalizedLineIdentities':list(hashes),'rawVendorScriptNotPublished':True}
+
 def telemetry_setup_contract(text):
  """Recognize only an explicit empty-variable guard around one async telemetry
  command. Unknown setup statements never become optional by their filename.
@@ -60,6 +77,9 @@ def telemetry_setup_contract(text):
   body.append(line)
   if depth==0:end=i;break
  assert end is not None,'SETUP_OPTIONAL_BLOCK_BOUND'
+ normalized=[line.strip().lstrip('@').strip() for line in body]
+ identities=[hashlib.sha256(line.encode()).hexdigest() for line in normalized]
+ if tuple(identities)==PINNED_TELEMETRY_LINES:return pinned_telemetry_contract(identities,start,end)
  commands=[]
  for line in body[1:]:
   clean=line.strip().lstrip('@').strip()

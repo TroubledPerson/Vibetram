@@ -194,5 +194,32 @@ class OptionalContractDiagnostics(unittest.TestCase):
   with self.assertRaisesRegex(AssertionError,'UNKNOWN_STATEMENT') as caught:optional_setup_environment({},setup,pins)
   row=caught.exception.setup_contract_diagnostic;self.assertTrue(row['unrecognizedStatementsRemainFatal']);self.assertTrue(row['rawScriptNotPublished']);self.assertNotIn('private_payload',str(row));self.assertIn('call',[x['statementKind'] for x in row['branchStatementMetadata']])
 
-if __name__=='__main__':unittest.main()
 
+
+
+
+class ExactPinnedTelemetryBranch(unittest.TestCase):
+ def test_both_vendor_execution_paths_have_one_optional_purpose(self):
+  from msvc_env import PINNED_TELEMETRY_LINES,pinned_telemetry_contract
+  row=pinned_telemetry_contract(PINNED_TELEMETRY_LINES,249,256)
+  self.assertTrue(row['debugNonemptySynchronousTelemetry']);self.assertTrue(row['debugEmptyAsynchronousTelemetry']);self.assertEqual(row['asynchronousPowerShellMajorMinimum'],3);self.assertEqual(row['moduleReference'],'%~dp0');self.assertTrue(row['moduleRelativeToPinnedSetupDirectory']);self.assertFalse(row['requiredBuildStatementsInBlock'])
+ def test_each_changed_statement_extra_or_missing_line_fails(self):
+  from msvc_env import PINNED_TELEMETRY_LINES,pinned_telemetry_contract
+  for i in range(8):
+   changed=list(PINNED_TELEMETRY_LINES);changed[i]='0'*64
+   with self.assertRaisesRegex(AssertionError,'PINNED_BRANCH_CHANGED'):pinned_telemetry_contract(changed,249,256)
+  for changed in [PINNED_TELEMETRY_LINES[:-1],PINNED_TELEMETRY_LINES+('0'*64,)]:
+   with self.assertRaises(AssertionError):pinned_telemetry_contract(changed,249,256)
+ def test_pinned_window_cannot_hide_extra_work(self):
+  from msvc_env import PINNED_TELEMETRY_LINES,pinned_telemetry_contract
+  for end in [255,257]:
+   with self.assertRaises(AssertionError):pinned_telemetry_contract(PINNED_TELEMETRY_LINES,249,end)
+ def test_whole_script_pin_is_still_enforced_before_branch_acceptance(self):
+  import inspect,msvc_env
+  text=inspect.getsource(msvc_env.optional_setup_environment);self.assertLess(text.index("digest==pins['setupSHA256']"),text.index('telemetry_setup_contract(text)'));self.assertIn("result['VSCMD_SKIP_SENDTELEMETRY']='1'",text)
+ def test_no_unrecognized_debug_branch_is_accepted(self):
+  from msvc_env import telemetry_setup_contract
+  text=OptionalSetupContract().text(extra='if "%VSCMD_DEBUG%" NEQ "" (\necho debug\n) else (\ncall :UnknownWork\n)')
+  with self.assertRaises(AssertionError):telemetry_setup_contract(text)
+
+if __name__=='__main__':unittest.main()
