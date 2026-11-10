@@ -314,6 +314,20 @@ class LeaseFailureDiagnostics(unittest.TestCase):
  def test_probe_workflow_safe_entry(self):
   import pathlib,json
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());j=w["jobs"]["overlay-probe"]
-  self.assertIn("[overlay-probe-191]",j["if"]);self.assertEqual(j["permissions"],{"contents":"read"});self.assertEqual(j["steps"][3]["run"],"python -B ci/cloud_build.py --overlay-probe");self.assertIn("dist/lease-*.json",j["steps"][-1]["with"]["path"])
+  self.assertIn("[overlay-probe-191]",j["if"]);self.assertEqual(j["permissions"],{"contents":"read"});self.assertEqual(j["steps"][3]["run"],"python -B ci/cloud_build.py --configure-probe");self.assertIn("dist/lease-*.json",j["steps"][-1]["with"]["path"])
+
+class ConfigureProbeEntry(unittest.TestCase):
+ def test_configure_returns_before_make_and_cargo(self):
+  import ast,inspect,cloud_build
+  tree=ast.parse(inspect.getsource(cloud_build.main));branch=next(n for n in tree.body[0].body if isinstance(n,ast.If) and isinstance(n.test,ast.Name) and n.test.id=="configure_probe")
+  self.assertTrue(any(isinstance(n,ast.Return) for n in branch.body));calls=[n.func.id for n in ast.walk(branch) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)]
+  self.assertNotIn("qualify_make_link",calls);self.assertNotIn("run",calls)
+  bootstrap=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=="bootstrap_for_cargo"];make=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=="qualify_make_link"]
+  self.assertEqual(len(bootstrap),1);self.assertLess(bootstrap[0].lineno,branch.lineno);self.assertLess(branch.lineno,make[0].lineno)
+ def test_mutable_scope_only_module_lease(self):
+  import ast,inspect,perl_overlay
+  tree=ast.parse(inspect.getsource(perl_overlay));calls=[n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=="capture_one" and any(k.arg=="mutable_ci_work" for k in n.keywords)]
+  self.assertEqual(len(calls),1);self.assertEqual(calls[0].args[1].id,"module")
+  expr=next(k.value for k in calls[0].keywords if k.arg=="mutable_ci_work");self.assertIsInstance(expr,ast.Compare);self.assertEqual(expr.left.id,"work");self.assertIn("ci-work",ast.unparse(expr))
 
 if __name__=="__main__":unittest.main()

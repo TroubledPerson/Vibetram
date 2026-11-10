@@ -402,16 +402,16 @@
           "run": "python -B ci/runner_preflight.py --require-qualified"
         },
         {
-          "name": "Actual build setup and overlay smoke only; no project build or Configure",
+          "name": "Actual build setup, overlay and Configure only; no project compilation",
           "timeout-minutes": 8,
-          "run": "python -B ci/cloud_build.py --overlay-probe"
+          "run": "python -B ci/cloud_build.py --configure-probe"
         },
         {
           "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
           "if": "always()",
           "with": {
             "name": "overlay-diagnostic-${{ github.sha }}",
-            "path": "dist/lease-*.json\ndist/perl-overlay-module-smoke.json\ndist/overlay-only-result.json\nci-work/trial-progress.json\nci-work/failure-summary.json\nci-work/msvc-qualification.json\npreflight-output/*.json\nprovision-output/*.json",
+            "path": "dist/lease-*.json\ndist/perl-overlay-module-smoke.json\ndist/overlay-only-result.json\ndist/runtime-qualification.json\ndist/actual-configure.json\nci-work/trial-progress.json\nci-work/failure-summary.json\nci-work/msvc-qualification.json\npreflight-output/*.json\nprovision-output/*.json",
             "if-no-files-found": "warn",
             "retention-days": 3
           }

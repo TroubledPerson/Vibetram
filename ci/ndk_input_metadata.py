@@ -65,7 +65,7 @@ class API:
  def raw(self,h):
   b=ctypes.create_string_buffer(MAX_RECORD);n=self.w.DWORD();self.checked(self.k.DeviceIoControl(h,0x000900A8,None,0,b,MAX_RECORD,ctypes.byref(n),None));assert n.value<=MAX_RECORD
   return b.raw[:n.value]
-def capture_one(root,tool,directory=False,expected_target=None,callback=None):
+def capture_one(root,tool,directory=False,expected_target=None,callback=None,mutable_ci_work=False):
  started=time.monotonic();metadata_started=started;api=API();held=[];result={"input":str(tool),"linkFollowed":False,"contentsRead":False,"qualified":False,"closeFailures":0,"expectedDirectory":directory,"callbackInvoked":False,"callbackSucceeded":False}
  def deadline():assert time.monotonic()-metadata_started<5,"METADATA_DEADLINE"
  def checked_rows(before,after,role):
@@ -76,7 +76,19 @@ def capture_one(root,tool,directory=False,expected_target=None,callback=None):
     keys=[key for key in ("identity","attributes","tag","bytes") if a.get(key)!=b.get(key)]
     if keys:differences.append({"componentIndex":i,"directory":bool(a.get("attributes",0)&0x10),"changedFields":keys,"before":{key:a.get(key) for key in keys},"after":{key:b.get(key) for key in keys}})
    result["metadataDifferences"]=differences[:8];result["metadataDifferenceCount"]=len(differences);result["metadataChainLengths"]=[len(before),len(after)]
-  stable_rows(before,after) # Original fatal validation is unchanged.
+  # Only the explicitly qualified job-owned ancestor may grow after the callback.
+  # All held identities, type/tag fields, immutable ancestors and module bytes stay exact.
+  compared=after
+  if mutable_ci_work and result.get("callbackSucceeded") and role=="INPUT":
+   index=len(work.parts)-1
+   if len(before)==len(after) and index<len(before)-1:
+    a,b=before[index],after[index]
+    if a!=b and a["attributes"]&0x10 and not a["attributes"]&0x400 and a["tag"]==0 and b["bytes"]>=a["bytes"]:
+     candidate=dict(b);candidate["bytes"]=a["bytes"]
+     if candidate==a:
+      compared=list(after);compared[index]=candidate
+      result["qualifiedMutableAncestorGrowthBytes"]=b["bytes"]-a["bytes"]
+  stable_rows(before,compared)
  def chain(path):
   rows=[];handles=[];p=pathlib.Path(path.anchor)
   assert len(path.parts)<=24,"PATH_DEPTH"
@@ -88,6 +100,9 @@ def capture_one(root,tool,directory=False,expected_target=None,callback=None):
    if i<len(path.parts)-1:assert row["attributes"]&0x10,"NON_DIRECTORY_ANCESTOR"
   return rows,handles,None
  try:
+  if mutable_ci_work:
+   work=pathlib.Path(__file__).resolve().parents[1]/"ci-work"
+   assert mutable_ci_work is True and root==work/"perl-overlay" and tool==root/"lib/Locale/Maketext/Simple.pm" and callback is not None and not directory and expected_target is None,"MUTABLE_CI_WORK_SCOPE"
   before,handles,link=chain(tool)
   if link is None:
    assert expected_target is None,"EXPECTED_SDK_ALIAS_ABSENT"

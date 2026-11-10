@@ -101,4 +101,40 @@ class MetadataReportingOnly(unittest.TestCase):
   with patch("ndk_input_metadata.API",Fake):d=capture_one(pathlib.Path("C:/ndk"),pathlib.Path("C:/ndk/tool.exe"),callback=callback)
   self.assertFalse(d["qualified"]);self.assertEqual(d["errorClass"],"AssertionError");self.assertEqual(d["metadataPhase"],"CALLBACK");self.assertEqual(d["reason"],"SYNTHETIC_CALLBACK_FAILURE");self.assertFalse(d["callbackSucceeded"])
 
+class MutableCiWorkAncestor(unittest.TestCase):
+ def run_case(self,change=None,denied=False,scope=True):
+  import ndk_input_metadata
+  work=pathlib.Path(ndk_input_metadata.__file__).resolve().parents[1]/"ci-work";root=work/"perl-overlay";tool=root/"lib/Locale/Maketext/Simple.pm";changed=[False]
+  class Fake:
+   def __init__(self):self.paths={};self.k=types.SimpleNamespace(CloseHandle=lambda h:True)
+   def open(self,p):h=len(self.paths)+1;self.paths[h]=p;return h
+   def info(self,h):
+    path=self.paths[h];leaf=path==tool
+    if changed[0] and denied and path==work:raise OSError(5,"synthetic")
+    row={"identity":[7,0,h],"attributes":0x20 if leaf else 0x10,"tag":0,"bytes":9707 if leaf else 8192}
+    if changed[0] and change:change(path,row,work,tool)
+    return row
+  with patch("ndk_input_metadata.API",Fake):return capture_one(root,tool,callback=lambda:changed.__setitem__(0,True),mutable_ci_work=scope)
+ def test_exact_job_ancestor_growth_allowed(self):
+  row=self.run_case(lambda p,r,w,t:r.update(bytes=12288) if p==w else None)
+  self.assertTrue(row["qualified"]);self.assertEqual(row["qualifiedMutableAncestorGrowthBytes"],4096);self.assertTrue(row["callbackSucceeded"])
+ def test_growth_is_opt_in(self):
+  self.assertFalse(self.run_case(lambda p,r,w,t:r.update(bytes=12288) if p==w else None,scope=False)["qualified"])
+ def test_ancestor_identity_type_tag_and_shrink_fatal(self):
+  for key,value in [("identity",[8,0,99]),("attributes",0x410),("attributes",0x20),("tag",0xA000000C),("bytes",4096)]:
+   with self.subTest(key=key,value=value):
+    row=self.run_case(lambda p,r,w,t:r.update({key:value}) if p==w else None);self.assertFalse(row["qualified"]);self.assertEqual(row["reason"],"METADATA_CHANGED")
+ def test_growth_plus_identity_mutation_fatal(self):
+  self.assertFalse(self.run_case(lambda p,r,w,t:r.update(bytes=12288,identity=[7,0,999]) if p==w else None)["qualified"])
+ def test_module_mutation_fatal(self):
+  for key,value in [("bytes",9800),("identity",[7,0,999]),("tag",0xA000000C)]:
+   with self.subTest(key=key):self.assertFalse(self.run_case(lambda p,r,w,t:r.update({key:value}) if p==t else None)["qualified"])
+ def test_other_ancestor_growth_fatal(self):
+  self.assertFalse(self.run_case(lambda p,r,w,t:r.update(bytes=12288) if p==w/"perl-overlay" else None)["qualified"])
+ def test_denial_fatal(self):
+  row=self.run_case(denied=True);self.assertFalse(row["qualified"]);self.assertEqual(row["state"],"OS_ACCESS_DENIED_STOP")
+ def test_arbitrary_mutable_scope_rejected(self):
+  row=capture_one(pathlib.Path("D:/not-job/perl-overlay"),pathlib.Path("D:/not-job/perl-overlay/lib/Locale/Maketext/Simple.pm"),callback=lambda:None,mutable_ci_work=True)
+  self.assertFalse(row["qualified"]);self.assertEqual(row["reason"],"MUTABLE_CI_WORK_SCOPE")
+
 if __name__=="__main__":unittest.main()

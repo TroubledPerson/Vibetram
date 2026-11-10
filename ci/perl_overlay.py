@@ -157,7 +157,7 @@ def repair_git_perl(guard,env,work,out,src,original):
   assert hashlib.sha256(module.read_bytes()).hexdigest()==MODULE_SHA,"OVERLAY_MODULE_CHANGED"
   callback()
  def interpreter_callback():
-  results["moduleInputLease"]=capture_one(work/"perl-overlay",module,callback=module_callback)
+  results["moduleInputLease"]=capture_one(work/"perl-overlay",module,callback=module_callback,mutable_ci_work=work==pathlib.Path(__file__).resolve().parents[1]/"ci-work")
   require_lease(results["moduleInputLease"],"OVERLAY_MODULE_INPUT_FAILED",out,"overlay-module",progress=progress)
  lease=capture_one(perl.parent,perl,callback=interpreter_callback)
  require_lease(lease,"OVERLAY_INTERPRETER_OR_SMOKE_FAILED",out,"overlay-interpreter",nested={"moduleInput":results.get("moduleInputLease",{})},progress=progress)
