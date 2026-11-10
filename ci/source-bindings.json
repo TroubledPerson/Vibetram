@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "7e267ae1740048a1491323551bdb2ace106c47d1bf4d9f8f1172c761f5dc7858"
+    "sha256": "ccc9a27cd3cb93506a7dcd03e72ecc30f1dd0ec8612fdd76991e040fd7d00f12"
   },
   {
     "path": ".gitignore",
@@ -201,7 +201,11 @@
   },
   {
     "path": "ci/openssl_probe.py",
-    "sha256": "b2789400092164a6495f18f026bbbef12cb04fdfa1bdcbc1e067be8a6c8d8aaf"
+    "sha256": "a3f25abb2072142d2ace9cf5792ebd3e07dbeefc1b3ef42cb2d6073906423d64"
+  },
+  {
+    "path": "ci/perl_prerequisites.py",
+    "sha256": "36db644a7b8f2ebc5dcf8004748d00430f6f68b0eeb40475edbbca9fa0c7bb93"
   },
   {
     "path": "ci/provision_rust.py",
@@ -269,11 +273,15 @@
   },
   {
     "path": "ci/test_openssl_probe.py",
-    "sha256": "a95a18d89c43b8884a289557d1b5d27effc30200b0437158a1b64341b98dc6d1"
+    "sha256": "e6bc72806073784b37cd2361ee85c6766c5d0b4cb6d2b74c5dece2e751313d30"
   },
   {
     "path": "ci/test_ordinary_churn.py",
     "sha256": "8a4b558d9e35cbfc4994ecf5cd09e6b597caec890acaa53de88308c1ab0d1243"
+  },
+  {
+    "path": "ci/test_perl_prerequisites.py",
+    "sha256": "7a483aa965575effc8bb82bbb035489ed81a31e3ba96695d30d4e10ceb660f63"
   },
   {
     "path": "ci/test_provision_rust.py",

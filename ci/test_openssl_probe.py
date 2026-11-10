@@ -66,6 +66,10 @@ class ProbePolicy(unittest.TestCase):
    for b in roots[i+1:]:self.assertFalse(a.is_relative_to(b) or b.is_relative_to(a))
  def test_checksum(self):self.assertEqual(CHECKSUM,"46eb8fb9fb3b61ce1c0f8a026c4c1a0714d3a9e138e7fbde78753ce2babc3846")
 
+ @unittest.skipUnless(os.name=="nt","Windows SDK environment")
+ def test_physical_sdk_environment(self):
+  roots=probe_layout(pathlib.Path.cwd());env=probe_environment(roots[0],roots[2],roots[3])
+  self.assertEqual(env["ANDROID_HOME"],str(PHYSICAL_SDK));self.assertEqual(env["ANDROID_SDK_ROOT"],str(PHYSICAL_SDK))
  def test_physical_sdk_constant(self):self.assertEqual(PHYSICAL_SDK,pathlib.Path("C:/Program Files (x86)/Android/android-sdk"))
  def test_physical_lease_order(self):
   from unittest.mock import patch

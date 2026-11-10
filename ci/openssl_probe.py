@@ -73,7 +73,7 @@ def validate_perl_metadata(data):
  return data
 def probe_environment(work,cargo,rustup):
  env=clean_env(os.environ,work)
- env.update(CARGO_HOME=str(cargo),RUSTUP_HOME=str(rustup))
+ env.update(CARGO_HOME=str(cargo),RUSTUP_HOME=str(rustup),ANDROID_HOME=str(PHYSICAL_SDK),ANDROID_SDK_ROOT=str(PHYSICAL_SDK))
  assert env.get("SystemRoot") and env.get("WINDIR"),"WINDOWS_SYSTEM_ENVIRONMENT_MISSING"
  return env
 def probe_layout(root):
@@ -112,31 +112,37 @@ def main():
  for p in ("tmp","home","profile","profile/AppData/Local","profile/AppData/Roaming"):(work/p).mkdir(parents=True,exist_ok=True)
  env=probe_environment(work,cargo,rustup);guard=Guard(ROOT,work,out,env)
  guard.run([sys.executable,"-B",__file__,"--materialize",str(work)],env=env,timeout=180)
- git=pathlib.Path(r"C:\Program Files\Git\cmd\git.exe");perl=git.parents[1]/"usr/bin/perl.exe"
- regular_chain(git);regular_chain(perl)
+ from perl_prerequisites import inventory
+ from ndk_input_metadata import capture_one
+ git=pathlib.Path(r"C:\Program Files\Git\cmd\git.exe");regular_chain(git)
  git_version=guard.run([git,"--version"],env=env,capture=True,timeout=15).stdout.strip()
- metadata_program=work/"perl-metadata.pl";metadata_program.write_text(perl_metadata_program(),encoding="ascii")
- details=json.loads(guard.run([perl,metadata_program],env=env,capture=True,timeout=15).stdout)
- preliminary={"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"metadata":details}
- (out/"installed-perl-metadata.json").write_text(json.dumps(preliminary,indent=2)+"\n",encoding="utf-8")
- validate_perl_metadata(details)
- print("INSTALLED_PERL_METADATA "+json.dumps(preliminary),flush=True)
  src=work/"crate"/PREFIX/"openssl"
+ selected,module_inventory=inventory(guard,env,work,out,src)
+ if selected is None:
+  guard.run([sys.executable,"-B",str(pathlib.Path(__file__).with_name("perl_prerequisites.py")),"--cpan-proposal",str(out)],env=env,timeout=60)
+  stop={"state":"NO_INSTALLED_COMPLETE_UNIX_PERL_NOT_CONFIGURED","configured":False,"modulesInstalled":False,"moduleInventoryFile":"perl-module-inventory.json","requiredModuleCount":len(module_inventory["requiredModules"]),"candidateSummary":[{"installation":x["installation"],"status":x["status"],"metadata":x.get("metadata"),"failedRoots":[m for m,v in x.get("modules",{}).items() if not v["loaded"]],"missingModules":sorted({m for v in x.get("modules",{}).values() for m in v["missing"]})} for x in module_inventory["candidates"]],"CPANProposal":json.loads((out/"cpan-proposal.json").read_text(encoding="utf-8")),"monitor":guard.report()}
+  (out/"qualification-stop.json").write_text(json.dumps(stop,indent=2)+"\n",encoding="utf-8");print(json.dumps(stop,indent=2),flush=True);return
+ perl=pathlib.Path(selected["path"]);details=selected["metadata"];validate_perl_metadata(details)
+ preliminary={"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":selected["sha256"],"metadata":details,"requiredModuleCount":len(module_inventory["requiredModules"])}
+ print("SELECTED_COMPLETE_PERL "+json.dumps(preliminary),flush=True)
+ physical_inputs={}
  def configure_physical(ndk,tools):
-  cross=android_env(env,ndk);cross["OPENSSL_SRC_PERL"]=str(perl);cross["PERL"]=str(perl)
+  cross=android_env(env,ndk);cross.update(ANDROID_HOME=str(PHYSICAL_SDK),ANDROID_SDK_ROOT=str(PHYSICAL_SDK),OPENSSL_SRC_PERL=str(perl),PERL=str(perl))
   cross.update(CC=str(tools/"clang.exe"),CFLAGS="--target=aarch64-linux-android29",AR=str(tools/"llvm-ar.exe"),ARFLAGS="crs",RANLIB=str(tools/"llvm-ranlib.exe"))
   guard.run([perl,"-e","require q(./Configurations/unix-checker.pm);"],cwd=src,env=cross,capture=True,timeout=15)
   guard.run([perl,*configure_args((work/"install").as_posix())],cwd=src,env=cross,capture=True,timeout=120)
- physical_inputs=with_physical_ndk_inputs(guard,env,out,configure_physical)
+ def selected_callback():
+  assert sha(perl)==selected["sha256"],"PERL_BINARY_CHANGED"
+  guard.run([perl,"-c","./Configure"],cwd=src,env=env,capture=True,timeout=25)
+  physical_inputs.update(with_physical_ndk_inputs(guard,env,out,configure_physical))
+ perl_lease=capture_one(perl.parent,perl,callback=selected_callback)
+ print("SELECTED_PERL_LEASE "+json.dumps(perl_lease),flush=True)
+ assert perl_lease["qualified"] and perl_lease.get("callbackSucceeded"),"SELECTED_PERL_OR_CONFIGURE_FAILED"
  makefile=src/"Makefile";assert makefile.is_file() and makefile.stat().st_size<16*1024**2,"CONFIGURE_MAKEFILE_MISSING"
  text=makefile.read_text(encoding="utf-8")
  assert "PLATFORM=linux-aarch64" in text and "--target=aarch64-linux-android29" in text,"CONFIGURE_TARGET_NOT_PRESERVED"
- make_candidates=[]
- for p in [git.parents[1]/"usr/bin/make.exe",pathlib.Path(r"C:\msys64\usr\bin\make.exe")]:
-  if p.exists():
-   regular_chain(p);v=guard.run([p,"--version"],env=env,capture=True,timeout=15).stdout.splitlines()[0]
-   make_candidates.append({"path":str(p),"sha256":sha(p),"version":v})
- report={"state":"PASS_CONFIGURE_ONLY_NOT_COMPILED","physicalInputMetadata":physical_inputs,"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"perlVersion":details["version"],"perlArch":details["arch"],"perlOS":details["os"],"OpenSSLUnixCheckerPassed":True,"unixPathSemantics":True,"opensslVersion":"3.6.3","crateVersion":VERSION,"archiveSHA256":CHECKSUM,"makefileSHA256":sha(makefile),"makeCandidates":make_candidates,"dependencyVersionsChanged":False,"compiled":False,"signed":False,"releasable":False,"provenance":"Installed Git for Windows on official GitHub hosted Windows image; binary hashes observed, not independent publisher attestation","monitor":guard.report()}
+ make_candidates=[] # Make execution is deliberately outside this configure-only phase.
+ report={"state":"PASS_CONFIGURE_ONLY_NOT_COMPILED","physicalInputMetadata":physical_inputs,"gitVersion":git_version,"gitSHA256":sha(git),"perlPath":str(perl),"perlSHA256":sha(perl),"perlVersion":details["version"],"perlArch":details["arch"],"perlOS":details["os"],"OpenSSLUnixCheckerPassed":True,"unixPathSemantics":True,"opensslVersion":"3.6.3","crateVersion":VERSION,"archiveSHA256":CHECKSUM,"makefileSHA256":sha(makefile),"makeCandidates":make_candidates,"makeQualification":"UNRUN","requiredModuleInventoryFile":"perl-module-inventory.json","requiredModuleCount":len(module_inventory["requiredModules"]),"dependencyVersionsChanged":False,"compiled":False,"signed":False,"releasable":False,"provenance":"Installed Git for Windows on official GitHub hosted Windows image; binary hashes observed, not independent publisher attestation","monitor":guard.report()}
  source_check(ROOT);(out/"qualification.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8");print(json.dumps(report,indent=2))
 if __name__=="__main__":
  if len(sys.argv)==3 and sys.argv[1]=="--materialize":materialize(pathlib.Path(sys.argv[2]))

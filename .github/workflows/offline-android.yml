@@ -91,6 +91,9 @@
         },
         {
           "run": "python -B ci/test_ndk_input_metadata.py"
+        },
+        {
+          "run": "python -B ci/test_perl_prerequisites.py"
         }
       ]
     },
