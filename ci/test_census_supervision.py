@@ -162,4 +162,168 @@ class CompilerDirectoryChurn(unittest.TestCase):
   with self.assertRaises(FileNotFoundError):self.scan('unknown')
  def test_lookup_path_not_found_without_prior_metadata_stays_fatal(self):
   with self.assertRaises(FileNotFoundError):self.scan(code=3)
+class FailureContext(unittest.TestCase):
+ def diagnostic(self,error,location=None):
+  from census_supervisor import census_diagnostic
+  p=pathlib.Path("D:/synthetic-owned");return census_diagnostic(error,[p/"work",p/"out",p/"cargo",p/"rustup"],location or {"phase":"FILE_ENTRY_METADATA","rootIndex":0,"relative":"target/ci-test/deps/temporary.o"})
+ def test_not_found_has_exact_os_numbers_and_owned_relative(self):
+  e=FileNotFoundError(2,"sensitive text",str(pathlib.Path("D:/synthetic-owned/work/target/ci-test/deps/temporary.o")));e.winerror=3;r=self.diagnostic(e)
+  self.assertEqual(r["failureCode"],"CENSUS_FILENOTFOUNDERROR");self.assertEqual(r["errno"],2);self.assertEqual(r["winerror"],3);self.assertEqual(r["relative"],"target/ci-test/deps/temporary.o");self.assertEqual(r["entrySource"],"OS_FILENAME");self.assertFalse(r["partialTotalAccepted"]);self.assertNotIn("sensitive",json.dumps(r))
+ def test_denial_link_and_identity_stay_distinct(self):
+  errors=[PermissionError(5,"sensitive"),AssertionError("UNQUALIFIED_OUTPUT_DIRECTORY_LINK:private"),AssertionError("SCRATCH_PARENT_IDENTITY_CHANGED:private")]
+  expected=["CENSUS_PERMISSION_DENIED","UNQUALIFIED_OUTPUT_DIRECTORY_LINK","SCRATCH_PARENT_IDENTITY_CHANGED"]
+  for e,code in zip(errors,expected):
+   with self.subTest(code=code):self.assertEqual(self.diagnostic(e)["failureCode"],code);self.assertFalse(self.diagnostic(e)["partialTotalAccepted"])
+ def test_private_absolute_outside_or_unsafe_paths_withheld(self):
+  for name in ("C:/Users/private-owner/private@example.invalid", "D:/synthetic-owned/work/target/private@example.invalid", "D:/synthetic-owned/work/../elsewhere"):
+   with self.subTest(name=name):
+    r=self.diagnostic(FileNotFoundError(2,"private-value",name));self.assertIsNone(r["relative"]);self.assertNotIn("private",json.dumps(r));self.assertNotIn("Users",json.dumps(r))
+ def test_fallback_is_labeled_last_operation_not_exact_os_path(self):
+  r=self.diagnostic(FileNotFoundError(2,"private-value"));self.assertEqual(r["entrySource"],"LAST_OPERATION_CONTEXT");self.assertEqual(r["phase"],"FILE_ENTRY_METADATA")
+ def test_invalid_diagnostic_fields_fail_closed(self):
+  from census_supervisor import validate_census_diagnostic
+  row=self.diagnostic(FileNotFoundError(2,"private"));self.assertEqual(validate_census_diagnostic(row),row)
+  for patcher in ({"relative":"../outside"},{"phase":"private@example.invalid"},{"rootIndex":8},{"winerror":"private"},{"partialTotalAccepted":True},{"extra":"value"}):
+   with self.subTest(patcher=patcher),self.assertRaises(AssertionError):validate_census_diagnostic({**row,**patcher})
+ def test_parent_retains_worker_diagnostic_without_accepting_partial_total(self):
+  from census_supervisor import census_diagnostic
+  g=ParentResourceLimits().g();g.count=46
+  e=FileNotFoundError(2,"private",str(g.work/"target/ci-test/temporary.o"));e.winerror=2
+  diagnostic=census_diagnostic(e,g.roots,{"phase":"DIRECTORY_ENTRY_METADATA"});state=export_state(g)
+  with patch('build_guard.run_census',side_effect=CensusFailure('CENSUS_FILENOTFOUNDERROR',{'state':state,'diagnostic':diagnostic})):
+   with self.assertRaises(CensusFailure):g.check()
+  r=g.report();self.assertEqual(r['censusFailureDiagnostic']['commandStage'],46);self.assertEqual(r['censusFailureDiagnostic']['relative'],'target/ci-test/temporary.o');self.assertFalse(r['lastSnapshotComplete']);self.assertIsNone(r['lastCompletedSnapshotBytes'])
+ def test_actual_worker_error_frame_contains_sanitized_context(self):
+  import io,types,census_worker
+  p=root();req=request(p);req['deadline']=time.monotonic()+30;output=io.StringIO()
+  def fail(g,deadline):
+   entry=g.work/'target/ci-test/temporary.o';g._census_at('FILE_ENTRY_METADATA',g.work,entry);error=FileNotFoundError(2,'private-value',str(entry));error.winerror=2;raise error
+  stdin=types.SimpleNamespace(buffer=io.BytesIO((json.dumps(req)+'\n').encode()))
+  with patch('census_worker.sys.stdin',stdin),patch('census_worker.sys.stdout',output),patch.object(Guard,'scan_epoch',fail):
+   with self.assertRaises(SystemExit):census_worker.main()
+  row=json.loads(output.getvalue());self.assertEqual(row['kind'],'error');self.assertEqual(row['payload']['diagnostic']['relative'],'target/ci-test/temporary.o');self.assertEqual(row['payload']['diagnostic']['winerror'],2);self.assertNotIn('private-value',output.getvalue());self.assertNotIn(str(p),json.dumps(row['payload']['diagnostic']))
+
+class TeardownEvidence(unittest.TestCase):
+ def test_parent_exit_and_taskkill_codes_never_prove_tree_exit(self):
+  from census_supervisor import classify_teardown
+  for code in (0,128,None):
+   r=classify_teardown(0,code);self.assertEqual(r['treeState'],'UNKNOWN_DESCENDANT_STATE');self.assertFalse(r['processTreeExitIndependentlyVerified'])
+ def test_surviving_bound_child_distinct_from_unknown(self):
+  from census_supervisor import classify_teardown
+  r=classify_teardown(0,0,[{'identityBound':True,'exited':False}],True);self.assertEqual(r['treeState'],'SURVIVING_KNOWN_CHILD');self.assertFalse(r['processTreeExitIndependentlyVerified'])
+ def test_only_complete_identity_bound_exit_evidence_verifies(self):
+  from census_supervisor import classify_teardown
+  self.assertTrue(classify_teardown(0,0,[{'identityBound':True,'exited':True}],True)['processTreeExitIndependentlyVerified'])
+  for complete,bound in ((False,True),(True,False)):
+   self.assertFalse(classify_teardown(0,0,[{'identityBound':bound,'exited':True}],complete)['processTreeExitIndependentlyVerified'])
+ def test_already_exited_parent_skips_taskkill_but_tree_stays_unknown(self):
+  from census_supervisor import stop_compiler_tree
+  from unittest.mock import Mock
+  p=Mock();p.pid=123;p.poll.return_value=0
+  with patch('census_supervisor.subprocess.Popen') as popen:self.assertEqual(stop_compiler_tree(p,Mock(),'C:/Windows'),[])
+  popen.assert_not_called();self.assertTrue(p._vibetram_teardown_diagnostic['parentAlreadyExitedBeforeStop']);self.assertFalse(p._vibetram_teardown_diagnostic['processTreeExitIndependentlyVerified'])
+ def test_stop_launch_denial_retains_unknown_outcome(self):
+  from census_supervisor import stop_compiler_tree
+  from unittest.mock import Mock
+  p=Mock();p.pid=123;p.poll.return_value=None
+  with patch('census_supervisor.subprocess.Popen',side_effect=PermissionError(5,'private-value')):failures=stop_compiler_tree(p,Mock(),'C:/Windows')
+  self.assertEqual(failures,['COMPILER_STOP_PermissionError']);self.assertEqual(p._vibetram_teardown_diagnostic['treeState'],'UNKNOWN_DESCENDANT_STATE');self.assertNotIn('private-value',json.dumps(p._vibetram_teardown_diagnostic))
+
+class FakeOwnedJobAPI:
+ def __init__(self,fail=None,hang=False):self.fail=fail;self.hang=hang;self.calls=[];self.assigned=False;self.active=False;self.dead=False;self.child=False;self.closed=[]
+ def event(self,name):
+  self.calls.append(name)
+  if self.fail==name:raise PermissionError(5,'synthetic owned-job denial')
+ def create_job(self):self.event('create_job');return 1
+ def create_suspended(self,*a):self.event('create_suspended');self.active=True;return 10,11
+ def assign(self,*a):self.event('assign');self.assigned=True
+ def in_job(self,p,j=None):return self.assigned if j else False
+ def resume(self,*a):self.event('resume');self.child=True
+ def members(self,j):
+  self.event('members');return ([1001,1002] if self.child else [1001]) if self.active else []
+ def active_count(self,j):return (2 if self.child else 1) if self.active else 0
+ def snapshot(self,h):return {'pid':1002 if h==20 else 1001,'creationFiletime':2 if h==20 else 1,'exited':self.dead}
+ def open_member(self,j,pid):self.event('open_member');return 20
+ def terminate(self,j):
+  self.event('terminate')
+  if not self.hang:self.active=False;self.dead=True
+ def terminate_unassigned(self,p):self.event('terminate_unassigned');self.active=False;self.dead=True
+ def close(self,h):
+  self.event('close');self.closed.append(h)
+  if h==1:self.active=False;self.dead=True
+
+class IsolatedOwnedJobs(unittest.TestCase):
+ def argv(self):
+  p=pathlib.Path('D:/synthetic-owned-job');return [sys.executable,'-B',str(p/'owned_job_fixture.py'),'wait','a'*32,str(p)],p
+ def start(self,api):
+  from census_supervisor import OwnedJobPrototype
+  j=OwnedJobPrototype(api);argv,p=self.argv();j.start_test(argv,p,{});return j
+ def test_assignment_precedes_execution(self):
+  a=FakeOwnedJobAPI();j=self.start(a);self.assertLess(a.calls.index('assign'),a.calls.index('resume'));self.assertEqual(j.events,['CREATED_SUSPENDED','ASSIGNED_OWNED_INNER','RESUMED_AFTER_ASSIGNMENT']);j.close();self.assertEqual(sorted(a.closed),[1,10,11,20])
+ def test_job_creation_denial_never_starts_any_process(self):
+  from census_supervisor import OwnedJobPrototype
+  a=FakeOwnedJobAPI('create_job')
+  with self.assertRaises(PermissionError):OwnedJobPrototype(a)
+  self.assertEqual(a.calls,['create_job']);self.assertEqual(a.closed,[])
+ def test_creation_failure_never_resumes(self):
+  a=FakeOwnedJobAPI('create_suspended')
+  with self.assertRaises(PermissionError):self.start(a)
+  self.assertNotIn('resume',a.calls);self.assertEqual(a.closed,[1])
+ def test_assignment_denial_terminates_only_unassigned_owned_handle(self):
+  a=FakeOwnedJobAPI('assign')
+  with self.assertRaises(PermissionError):self.start(a)
+  self.assertNotIn('resume',a.calls);self.assertIn('terminate_unassigned',a.calls);self.assertEqual(sorted(a.closed),[1,10,11])
+ def test_resume_failure_stops_assigned_job(self):
+  a=FakeOwnedJobAPI('resume')
+  with self.assertRaises(PermissionError):self.start(a)
+  self.assertIn('terminate',a.calls);self.assertFalse(a.active);self.assertEqual(sorted(a.closed),[1,10,11])
+ def test_zero_members_and_all_held_identities_exit_required(self):
+  a=FakeOwnedJobAPI();j=self.start(a);r=j.stop();self.assertEqual(r['activeMembers'],0);self.assertTrue(r['knownHandlesExited']);j.close()
+ def test_bounded_timeout_never_qualifies(self):
+  a=FakeOwnedJobAPI(hang=True);j=self.start(a);clock=[0]
+  def sleep(n):clock[0]+=n
+  with patch('census_supervisor.time.monotonic',side_effect=lambda:clock[0]),patch('census_supervisor.time.sleep',side_effect=sleep):
+   with self.assertRaisesRegex(TimeoutError,'DEADLINE'):j.stop(.03)
+  a.hang=False;j.close()
+ def test_empty_pid_buffer_without_zero_active_count_not_success(self):
+  a=FakeOwnedJobAPI(hang=True);j=self.start(a);clock=[0]
+  def sleep(n):clock[0]+=n
+  with patch.object(a,'members',return_value=[]),patch.object(a,'snapshot',return_value={'pid':1001,'creationFiletime':1,'exited':True}),patch('census_supervisor.time.monotonic',side_effect=lambda:clock[0]),patch('census_supervisor.time.sleep',side_effect=sleep):
+   with self.assertRaises(TimeoutError):j.stop(.03)
+  a.hang=False;j.close()
+ def test_all_job_members_including_console_helper_are_retained(self):
+  class Three(FakeOwnedJobAPI):
+   def members(self,j):return [1001,1002,1003] if self.active else []
+   def active_count(self,j):return 3 if self.active else 0
+   def open_member(self,j,pid):return {1002:20,1003:30}[pid]
+   def snapshot(self,h):return {'pid':{10:1001,20:1002,30:1003}[h],'creationFiletime':h,'exited':self.dead}
+  a=Three();j=self.start(a);r=j.stop();self.assertEqual(len(r['before']),3);self.assertEqual(len(r['after']),3);j.close();self.assertEqual(sorted(a.closed),[1,10,11,20,30])
+ def test_parent_exits_before_child_without_losing_job_members(self):
+  class Early(FakeOwnedJobAPI):
+   def members(self,j):return [1002] if self.active else []
+   def active_count(self,j):return 1 if self.active else 0
+   def snapshot(self,h):return {'pid':1002 if h==20 else 1001,'creationFiletime':2 if h==20 else 1,'exited':True if h==10 else self.dead}
+  a=Early();j=self.start(a);r=j.stop();self.assertEqual(len(r['before']),1);self.assertEqual(r['activeMembers'],0);self.assertTrue(r['knownHandlesExited']);j.close()
+ def test_failed_stop_is_not_retried_during_handle_cleanup(self):
+  a=FakeOwnedJobAPI();j=self.start(a);a.fail='terminate'
+  with self.assertRaises(PermissionError):j.stop()
+  j.close();self.assertEqual(a.calls.count('terminate'),1);self.assertTrue(j.closed)
+ def test_handle_close_failure_is_explicit(self):
+  a=FakeOwnedJobAPI();j=self.start(a);j.stop();a.fail='close'
+  with self.assertRaisesRegex(RuntimeError,'CLEANUP_UNCERTAIN'):j.close()
+ def test_changed_creation_identity_is_fatal(self):
+  a=FakeOwnedJobAPI();j=self.start(a);original=a.snapshot
+  def changed(h):return {**original(h),'creationFiletime':999}
+  with patch.object(a,'snapshot',side_effect=changed):
+   with self.assertRaisesRegex(AssertionError,'IDENTITY_CHANGED'):j.observe()
+  j.close()
+ def test_no_production_runner_replacement(self):
+  import inspect,ast
+  tree=ast.parse(__import__("textwrap").dedent(inspect.getsource(Guard.run)));self.assertNotIn('OwnedJobPrototype',ast.unparse(tree));self.assertNotIn('WindowsOwnedJobAPI',ast.unparse(tree))
+ def test_environment_double_nul_and_no_credential_keys(self):
+  from census_supervisor import owned_job_test_environment
+  env={'SystemRoot':'C:/Windows','PYTHONNOUSERSITE':'1','PYTHONDONTWRITEBYTECODE':'1'};block=owned_job_test_environment(env);self.assertTrue(block.endswith(chr(0)*2));self.assertNotIn('\\0',block)
+  for change in ({'TOKEN':'synthetic'},{'PATH':'x'+chr(0)+'y'}):
+   with self.assertRaises(AssertionError):owned_job_test_environment({**env,**change})
+
 if __name__=='__main__':unittest.main()

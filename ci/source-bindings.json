@@ -161,15 +161,15 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "4e1837990cd9028d05991b90379e6871eee245116495b2200846ba6b7ed9b9f4"
+    "sha256": "296524a6cd44d3efaa1af996e5b0141785808f645d94f5d7ae4e8bdd15ccb140"
   },
   {
     "path": "ci/census_supervisor.py",
-    "sha256": "64e1587defcb1b5e28403490a942b8dfd1469150ed9e8638222bef98cf8c2aa6"
+    "sha256": "07ed5def6ec5ca5b9170e5e3c62886355a2943b287ccf2cd69a7c8ada43d3be6"
   },
   {
     "path": "ci/census_worker.py",
-    "sha256": "94b8c0ea099ed13531f893045afaa00d27e83f1f474e442c3433140259a0d316"
+    "sha256": "683512a43c8396271f37dd90a0eb45ea50baeaaf11b78f1511cbf8e72dcebe1f"
   },
   {
     "path": "ci/check_source.py",
@@ -249,7 +249,7 @@
   },
   {
     "path": "ci/test_census_supervision.py",
-    "sha256": "7490e2a73fa07d4a8ca7ed81c3e28dc37421508911d0ac08245b052d33719f86"
+    "sha256": "1c6292f136214bac9d6afc7087f3143e26cbb4ee6e247218fc2d0e81f0772d86"
   },
   {
     "path": "ci/test_fixture_privacy.py",

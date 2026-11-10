@@ -85,8 +85,16 @@ class Guard:
  def _setup(self,root,work,out,env):
   self.root=root;self.work=work;self.out=out;self.env=env;self.start=time.monotonic();self.count=0;self.peak=0;self.races=0
   self.roots=[work,out,pathlib.Path(env['CARGO_HOME']),pathlib.Path(env['RUSTUP_HOME'])]
-  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.scratch_baselines={};self.scratch_parent_baselines={};self.last_completed_root_scans=[];self.accepted_snapshot_peak=0;self.ordinary_churn_count=0;self.recent_churn=[];self.snapshot_deadline=None;self.root_scans=[];self.enumeration_resource_checks=0;self.active_log_bytes=0;self.snapshot_incomplete=0;self.last_completed_bytes=None;self.last_snapshot_complete=False;self._sampler=None;self._log_paths=[];self.census_generation=0;self.census_pending=False;self.last_census_at=None;self.census_walk_count=0;self.supervision_samples=0;self.supervision_max_gap=0;self._command_deadline=None;self.worker_mode=False;self.census_cleanup_failures=[]
+  self.qualified_links=set();self.commands=[];self.pending_reparse=None;self.reparse_result=None;self.alias_baseline=None;self.alias_last_result=None;self.alias_failure=None;self.alias_passes=0;self.alias_charged_bytes=0;self.scratch_baselines={};self.scratch_parent_baselines={};self.last_completed_root_scans=[];self.accepted_snapshot_peak=0;self.ordinary_churn_count=0;self.recent_churn=[];self.snapshot_deadline=None;self.root_scans=[];self.enumeration_resource_checks=0;self.active_log_bytes=0;self.snapshot_incomplete=0;self.last_completed_bytes=None;self.last_snapshot_complete=False;self._sampler=None;self._log_paths=[];self.census_generation=0;self.census_pending=False;self.last_census_at=None;self.census_walk_count=0;self.supervision_samples=0;self.supervision_max_gap=0;self._command_deadline=None;self.worker_mode=False;self.census_cleanup_failures=[];self.census_location={'phase':'NOT_STARTED'};self.census_failure_diagnostic=None
+ def _census_at(self,phase,root=None,path=None):
+  self.census_location={"phase":phase}
+  if root is not None and root in self.roots:
+   self.census_location["rootIndex"]=self.roots.index(root)
+   if path is not None:
+    try:self.census_location["relative"]=path.relative_to(root).as_posix()
+    except ValueError:pass
  def _leased_pass(self):
+  self._census_at("ALIAS_METADATA",self.work,self.work/EXPECTED_ALIAS)
   holder={}
   def scan(report):
    key=lease_key(report);compare_baseline(self.alias_baseline,key)
@@ -144,7 +152,7 @@ class Guard:
  def _size_once(self):
   if self.alias_failure is not None:raise AssertionError(self.alias_failure)
   try:
-   disjoint_roots(self.roots)
+   self._census_at("ROOT_DISJOINT_VALIDATION");disjoint_roots(self.roots)
    for attempt in range(2):
     total=self._leased_pass()
     if total is not None:return total
@@ -158,6 +166,7 @@ class Guard:
   except (AssertionError,OSError,RuntimeError) as error:
    self.alias_failure=str(error)[:300];raise
  def _enumeration_resources(self,partial):
+  self._census_at("ENUMERATION_RESOURCE_CHECK")
   self.enumeration_resource_checks=getattr(self,'enumeration_resource_checks',0)+1
   self.peak=max(self.peak,partial)
   reason=limits(shutil.disk_usage(self.root).free,self.peak,time.monotonic()-self.start,getattr(self,'active_log_bytes',0))
@@ -171,12 +180,14 @@ class Guard:
    assert self.census_walk_count<2,'CENSUS_TWO_WALKS_EXHAUSTED'
    self.census_walk_count+=1
   self.root_scans=[]
+  self._census_at('SCRATCH_TRACKER_OPEN',self.work,self.work)
   with ScratchTracker(self.work,self.scratch_baselines,self.scratch_parent_baselines) as scratch:return self._walk_tracked(lease,scratch)
  def _walk_tracked(self,lease,scratch):
   total=0;alias_visits=0;target_visits=0
   observed_dirs=set()
   def walk_error(error):
    path=pathlib.Path(error.filename) if getattr(error,'filename',None) else None
+   self._census_at("DIRECTORY_ENUMERATION",root,path)
    if root==self.work and path in observed_dirs and compiler_scratch_root(self.work,path.parent) and isinstance(error,FileNotFoundError) and getattr(error,'winerror',None) in (2,3):
     scratch.verify_parents();raise OrdinaryScratchChurn(path.relative_to(self.work).as_posix(),total)
    raise error
@@ -191,13 +202,16 @@ class Guard:
      self._enumeration_resources(total);last=now;since=0
    try:
     tick(True)
+    self._census_at('ROOT_METADATA',root,root)
     assert not root.is_symlink() and not root.is_junction(),'UNQUALIFIED_ACCOUNTING_ROOT_LINK'
     assert root.exists(),'ACCOUNTING_ROOT_MISSING'
     for folder,dirs,files in os.walk(root,followlinks=False,onerror=walk_error):
-     if root==self.work and compiler_scratch_root(self.work,pathlib.Path(folder)):scratch.lease_parent(pathlib.Path(folder));scratch.verify_parents()
+     if root==self.work and compiler_scratch_root(self.work,pathlib.Path(folder)):self._census_at("SCRATCH_PARENT_LEASE",root,pathlib.Path(folder));scratch.lease_parent(pathlib.Path(folder));scratch.verify_parents()
      if root==self.work and pathlib.Path(folder)==self.work/EXPECTED_TARGET:target_visits+=1
+     self._census_at("DIRECTORY_ENUMERATION",root,pathlib.Path(folder))
      for name in list(dirs):
       d=pathlib.Path(folder)/name
+      self._census_at("DIRECTORY_ENTRY_METADATA",root,d)
       try:meta=fresh_entry(d)
       except FileNotFoundError as error:
        if root==self.work and compiler_scratch_root(self.work,d.parent) and getattr(error,'winerror',None)==2:
@@ -212,19 +226,21 @@ class Guard:
        raise AssertionError('UNQUALIFIED_OUTPUT_DIRECTORY_LINK:'+str(d.relative_to(root)))
       assert stat.S_ISDIR(meta.st_mode) and meta.st_reparse_tag==0,'DIRECTORY_ENTRY_TYPE_OR_TAG_CHANGED'
       observed_dirs.add(d)
-      if root==self.work and compiler_scratch_root(self.work,d):scratch.lease_parent(d);scratch.verify_parents()
+      if root==self.work and compiler_scratch_root(self.work,d):self._census_at("SCRATCH_PARENT_LEASE",root,d);scratch.lease_parent(d);scratch.verify_parents()
       if root==self.work and eligible_scratch(self.work,d):
+       self._census_at('SCRATCH_LEAF_SCAN',root,d)
        total+=scratch.scan(d,total);dirs.remove(name);row['scratchLeaves']+=1
       tick()
      for name in files:
       p=pathlib.Path(folder)/name
+      self._census_at("FILE_ENTRY_METADATA",root,p)
       reading_entry=True
       try:
        meta=fresh_entry(p);reading_entry=False;row['ordinaryFileEntries']+=1;since+=1
        if meta.st_file_attributes&0x400:
         assert stat.S_ISLNK(meta.st_mode) and meta.st_reparse_tag==0xa000000c,'UNQUALIFIED_OUTPUT_FILE_JUNCTION'
         cargo=pathlib.Path(self.env['CARGO_HOME']);assert p.is_relative_to(cargo),'OUTPUT_LINK_OUTSIDE_PINNED_CACHE';relative=p.relative_to(cargo).as_posix();target=os.readlink(p)
-        rule=license_rule(relative,target);assert rule is not None,'UNQUALIFIED_OUTPUT_FILE_LINK:'+relative
+        self._census_at('PINNED_LICENSE_CHECK',root,p);rule=license_rule(relative,target);assert rule is not None,'UNQUALIFIED_OUTPUT_FILE_LINK:'+relative
         sibling=p.parent.parent/'LICENSE';assert sibling.is_file() and not sibling.is_symlink(),'PINNED_LICENSE_TARGET_NOT_REGULAR'
         for ancestor in sibling.parents:
          assert not ancestor.is_symlink() and not ancestor.is_junction(),'PINNED_LICENSE_ANCESTOR_LINK'
@@ -277,6 +293,9 @@ class Guard:
   except BaseException as error:
    self.last_snapshot_complete=False;self.census_cleanup_failures=getattr(error,'cleanup_failures',[])
    payload=getattr(error,'payload',None)
+   if isinstance(payload,dict) and payload.get('diagnostic') is not None:
+    from census_supervisor import validate_census_diagnostic
+    self.census_failure_diagnostic={**validate_census_diagnostic(payload['diagnostic']),'commandStage':self.count}
    if isinstance(payload,dict) and isinstance(payload.get('state'),dict):
     state=payload['state'];self.root_scans=state.get('root_scans',[]);self.alias_last_result=state.get('alias_last_result')
     for key in ('snapshot_incomplete','ordinary_churn_count','enumeration_resource_checks'):
@@ -293,7 +312,7 @@ class Guard:
    self.supervision_max_gap=max(self.supervision_max_gap,self._sampler.max_gap)
    if own:self.supervision_samples+=self._sampler.count;self._sampler=None
  def report(self):
-  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'censusPending':self.census_pending,'censusCleanupFailures':self.census_cleanup_failures,'lastCensusAgeSeconds':None if self.last_census_at is None else round(time.monotonic()-self.last_census_at,3),'currentAtomicTotalAvailable':False,'supervisionTargetSeconds':.25,'missedSupervisionLimitSeconds':1.0,'supervisionSamples':self.supervision_samples+(self._sampler.count if self._sampler else 0),'maximumObservedSupervisionGap':max(self.supervision_max_gap,self._sampler.max_gap if self._sampler else 0),'censusWindowSeconds':30,'censusAttemptBound':2,'lastReportedCensusWalkCount':self.census_walk_count,'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'lastCompletedRootScans':self.last_completed_root_scans,'acceptedSnapshotPeakBytes':self.accepted_snapshot_peak,'ordinaryChurnInvalidations':self.ordinary_churn_count,'recentDiscardedSnapshots':self.recent_churn,'rootScans':self.root_scans,'enumerationResourceChecks':self.enumeration_resource_checks,'enumerationCheckMaxEntries':256,'enumerationCheckIntervalSeconds':0.25,'snapshotDisappearanceRaces':self.races,'churnInvalidatedCensusSnapshots':self.snapshot_incomplete,'lastSnapshotComplete':self.last_snapshot_complete,'lastCompletedSnapshotBytes':self.last_completed_bytes,'unmeasuredIncompleteResidualBytes':None,'peakIsExactHistoricalMaximum':False,'snapshotAttemptBound':2,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
+  return {'elapsedSeconds':round(time.monotonic()-self.start,3),'censusPending':self.census_pending,'censusCleanupFailures':self.census_cleanup_failures,'censusFailureDiagnostic':self.census_failure_diagnostic,'lastCensusAgeSeconds':None if self.last_census_at is None else round(time.monotonic()-self.last_census_at,3),'currentAtomicTotalAvailable':False,'supervisionTargetSeconds':.25,'missedSupervisionLimitSeconds':1.0,'supervisionSamples':self.supervision_samples+(self._sampler.count if self._sampler else 0),'maximumObservedSupervisionGap':max(self.supervision_max_gap,self._sampler.max_gap if self._sampler else 0),'censusWindowSeconds':30,'censusAttemptBound':2,'lastReportedCensusWalkCount':self.census_walk_count,'retainedPeakBytes':self.peak,'monitoredOutputThresholdBytes':MAX_OUTPUT,'minimumFreeBytes':MIN_FREE,'maximumSeconds':MAX_SECONDS,'lastCompletedRootScans':self.last_completed_root_scans,'acceptedSnapshotPeakBytes':self.accepted_snapshot_peak,'ordinaryChurnInvalidations':self.ordinary_churn_count,'recentDiscardedSnapshots':self.recent_churn,'rootScans':self.root_scans,'enumerationResourceChecks':self.enumeration_resource_checks,'enumerationCheckMaxEntries':256,'enumerationCheckIntervalSeconds':0.25,'snapshotDisappearanceRaces':self.races,'churnInvalidatedCensusSnapshots':self.snapshot_incomplete,'lastSnapshotComplete':self.last_snapshot_complete,'lastCompletedSnapshotBytes':self.last_completed_bytes,'unmeasuredIncompleteResidualBytes':None,'peakIsExactHistoricalMaximum':False,'snapshotAttemptBound':2,'hardCumulativeWriteQuota':False,'qualifiedPinnedLicenseLinks':sorted(self.qualified_links),'directoryAliasAccounting':{'qualifiedPasses':self.alias_passes,'aliasMetadataBytesPerPass':self.alias_charged_bytes,'aliasTraversed':False,'lastMetadataState':(self.alias_last_result or {}).get('state'),'latchedFailure':self.alias_failure},'commands':self.commands,'signed':False,'releasable':False}
  def run(self,args,cwd=None,env=None,capture=False,timeout=None):
   self.check();self.count+=1;index=self.count;label=pathlib.Path(str(args[0])).name
   stdout=self.work/f'command-{index:02d}.stdout.log';stderr=self.work/f'command-{index:02d}.stderr.log'
@@ -333,7 +352,7 @@ class Guard:
    for name,path in [('stdoutTail',stdout),('stderrTail',stderr)]:
     if path.exists():
      with path.open('rb') as f:f.seek(max(0,path.stat().st_size-16000));tails[name]=redact(f.read().decode('utf-8',errors='replace'))
-   report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,'teardownFailures':teardown,'knownParentExitObserved':proc is None or proc.poll() is not None,'knownParentExitCode':None if proc is None else proc.poll(),'processTreeExitIndependentlyVerified':False,'category':str(error)[:200],**tails}
+   report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,'teardownFailures':teardown,'teardownDiagnostic':getattr(proc,'_vibetram_teardown_diagnostic',{'treeState':'NO_PROCESS_STARTED' if proc is None else 'UNKNOWN_DESCENDANT_STATE','processTreeExitIndependentlyVerified':False}),'knownParentExitObserved':proc is None or proc.poll() is not None,'knownParentExitCode':None if proc is None else proc.poll(),'processTreeExitIndependentlyVerified':False,'category':str(error)[:200],**tails}
    (self.work/'failure-summary.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
    print(json.dumps(report,indent=2),flush=True)
    raise
