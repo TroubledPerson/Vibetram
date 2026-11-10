@@ -301,7 +301,7 @@
   },
   {
     "path": "ci/test_lock_diagnostic.py",
-    "sha256": "ef129950d80033ca8ebd9da3d50235ea129f64c7925f47023ee647b09e318c4c"
+    "sha256": "6d83236c2c13bfb62c355073adb33afcc3ee4299839420d440b6bc0a7a7dc921"
   },
   {
     "path": "ci/test_lock_repair.py",
