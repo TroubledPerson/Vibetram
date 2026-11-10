@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "551f8e2743a1e2783f34e12891b5136c83e9cd462c00a12c46e8b769cdb10b60"
+    "sha256": "00ae4fc48a9aa00ec359420ba4b9c3c9a2a3cc98119dfbfa092fadb4b71aada8"
   },
   {
     "path": ".gitignore",
@@ -209,7 +209,7 @@
   },
   {
     "path": "ci/perl_overlay.py",
-    "sha256": "cebf4ad88da9c477658d1e39f3a48f54789c85a2459ef805edd2cf274eb76505"
+    "sha256": "058f3b27f47396a1f23d23991983eb239ffcfba9d75678496f1ec788050160db"
   },
   {
     "path": "ci/perl_prerequisites.py",
@@ -31630,5 +31630,13 @@
   {
     "path": "codex-rs/worktree/tests/worktree.rs",
     "sha256": "345846a7e00d5db6c569d8ca21d7483dc8ce0f2c8e90298d91ffc1da0c7d54fd"
+  },
+  {
+    "path": "ci/runtime_report.py",
+    "sha256": "47ce412d9578288b859d6c609c79d2f80ff38213ce6f7f248400ee5fbed4398c"
+  },
+  {
+    "path": "ci/test_runtime_report.py",
+    "sha256": "ca34528e1bc3c77944517ec16c523bde7e9f001f6331aa6dcc7fa84ad4528657"
   }
 ]

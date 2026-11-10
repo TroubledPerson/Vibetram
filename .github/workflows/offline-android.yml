@@ -99,6 +99,9 @@
           "run": "python -B ci/test_perl_overlay.py"
         },
         {
+          "run": "python -B ci/test_runtime_report.py"
+        },
+        {
           "run": "python -B ci/test_owned_job_probe.py"
         }
       ]
@@ -149,7 +152,7 @@
           "if": "always()",
           "with": {
             "name": "unsigned-audit-${{ github.sha }}",
-            "path": "preflight-output/*.json\nprovision-output/*.json\nci-work/failure-summary.json\nci-work/compiled-dependency-notice-check.json\nci-work/trial-progress.json\nci-work/msvc-qualification.json\ndist/runtime-qualification.json\ndist/make-link-qualification.json\ndist/actual-configure.json",
+            "path": "preflight-output/*.json\nprovision-output/*.json\nci-work/failure-summary.json\nci-work/compiled-dependency-notice-check.json\nci-work/trial-progress.json\nci-work/msvc-qualification.json\ndist/runtime-qualification.json\ndist/runtime-evidence/*.json\ndist/make-link-qualification.json\ndist/actual-configure.json",
             "if-no-files-found": "warn",
             "retention-days": 3
           }
@@ -414,7 +417,7 @@
           "if": "always()",
           "with": {
             "name": "overlay-diagnostic-${{ github.sha }}",
-            "path": "dist/lease-*.json\ndist/perl-overlay-module-smoke.json\ndist/overlay-only-result.json\ndist/runtime-qualification.json\ndist/actual-configure.json\ndist/make-link-qualification.json\nci-work/trial-progress.json\nci-work/failure-summary.json\nci-work/msvc-qualification.json\npreflight-output/*.json\nprovision-output/*.json",
+            "path": "dist/lease-*.json\ndist/perl-overlay-module-smoke.json\ndist/overlay-only-result.json\ndist/runtime-qualification.json\ndist/runtime-evidence/*.json\ndist/actual-configure.json\ndist/make-link-qualification.json\nci-work/trial-progress.json\nci-work/failure-summary.json\nci-work/msvc-qualification.json\npreflight-output/*.json\nprovision-output/*.json",
             "if-no-files-found": "warn",
             "retention-days": 3
           }

@@ -658,8 +658,9 @@ def qualify_prepared_runtime(guard,env,work,out,src,configure=True):
   require_lease(lease,"RUNTIME_INTERPRETER_LEASE",out,"runtime-interpreter")
  with_physical_ndk_inputs(guard,env,out,actual)
  report={"state":"PASS_RUNTIME_CONFIGURE_ONLY" if configure else "PASS_RUNTIME_DEPENDENCY_AND_HELPER_QUALIFICATION","packages":plan["packages"],"missingProviderCount":len(missing),"preservedInstalledProviderCount":len(providers)-len(missing),"requiredModuleCount":len(required),"moduleClosure":closure["modules"],"helperTests":results,"podRuntime":pod_result,"sourceCatalogue":catalogue,"configureExecuted":configure,"compilationRequested":False,"compilerVersionQueriesAllowed":configure,"configuration":configuration,"globalInstallationChanged":False,"limits":"Active Cygwin compiler-discovery helpers and declared runtime prerequisites; not every MakeMaker API or future configure/make/build path","monitor":guard.report()}
- text=json.dumps(report,indent=2)+"\n";assert len(text.encode())<65536
- (out/"runtime-qualification.json").write_text(text,encoding="utf-8");source_check(ROOT);print(text,flush=True)
+ from runtime_report import write_runtime_report
+ report=write_runtime_report(report,out,guard._resource_sample)
+ source_check(ROOT);print(json.dumps(report,indent=2),flush=True)
 
  return selected,env,report
 
