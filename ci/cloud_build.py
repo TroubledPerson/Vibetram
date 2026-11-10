@@ -2,7 +2,9 @@
 import os,pathlib,subprocess,json,hashlib,shutil,re,zipfile,struct,tomllib
 from check_source import source_check
 from msvc_env import qualify_msvc
-from build_guard import Guard,clean_env,android_env,artifact,test_count,MAX_OUTPUT,MIN_FREE
+from build_guard import Guard,clean_env,android_env,artifact,test_count,MAX_OUTPUT,MIN_FREE,MAX_SECONDS
+from openssl_probe import PHYSICAL_SDK,regular_chain
+from perl_overlay import bootstrap_for_cargo,qualify_make_link,build_android_environment
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 WORK=ROOT/'ci-work';OUT=ROOT/'dist';GUARD=None;ENV=None
 def run(argv,cwd=ROOT,env=None,capture=False):
@@ -47,14 +49,19 @@ def main():
  assert shutil.disk_usage(ROOT).free>=MIN_FREE+MAX_OUTPUT,'INITIAL_104_GIB_TRIAL_RESERVATION_REQUIRED'
  commit=os.environ['GITHUB_SHA'];assert re.fullmatch('[0-9a-f]{40}',commit)
  assert run(['git','rev-parse','HEAD'],capture=True).stdout.strip()==commit
- sdk=pathlib.Path(os.environ['ANDROID_HOME']);bt=sdk/'build-tools/35.0.0';jar=sdk/'platforms/android-35/android.jar';ndkroot=sdk/'ndk/30.0.16248370';ndk=ndkroot/'toolchains/llvm/prebuilt/windows-x86_64/bin';java=pathlib.Path(os.environ['JAVA_HOME_17_X64'])/'bin'
+ sdk=PHYSICAL_SDK;bt=sdk/'build-tools/35.0.0';jar=sdk/'platforms/android-35/android.jar';ndkroot=sdk/'ndk/30.0.16248370';ndk=ndkroot/'toolchains/llvm/prebuilt/windows-x86_64/bin';java=pathlib.Path(os.environ['JAVA_HOME_17_X64'])/'bin'
  required=[bt/'aapt2.exe',bt/'zipalign.exe',bt/'lib/d8.jar',jar,ndk/'clang.exe',ndk/'clang++.exe',ndk/'llvm-ar.exe',ndk/'llvm-strip.exe',ndk/'llvm-readelf.exe',java/'javac.exe',java/'java.exe',java/'jar.exe']
+ for p in required:regular_chain(p)
  assert all(p.is_file() for p in required),'PINNED_REQUIRED_TOOL_MISSING'
  WORK.mkdir();OUT.mkdir()
  for path in ('tmp','home','profile','profile/AppData/Roaming','profile/AppData/Local','host-fixtures/tmp','host-fixtures/profile'): (WORK/path).mkdir(parents=True,exist_ok=True)
  ENV=clean_env(os.environ,WORK);GUARD=Guard(ROOT,WORK,OUT,ENV)
  ENV,msvc=qualify_msvc(ENV,WORK,GUARD);GUARD.env=ENV
  versions={'qualifiedMsvc':msvc}
+ runtime_env,qualified_perl,openssl_source,runtime_report=bootstrap_for_cargo(GUARD,ENV,WORK,OUT)
+ cross,make_report=qualify_make_link(GUARD,runtime_env,WORK,OUT,openssl_source,qualified_perl,elf_check)
+ GUARD.env=ENV # Host builds retain their original qualified Microsoft environment.
+ versions.update(perlRuntime={'state':runtime_report['state'],'requiredModules':runtime_report['requiredModuleCount'],'packages':[{'name':x['distribution'],'version':x['version'],'sha256':x['archiveSHA256']} for x in runtime_report['packages']]},makeLinkQualification=make_report)
  for name,args in [('rustc',['rustc','--version']),('ndkClang',[ndk/'clang.exe','--version']),('ndkArchiver',[ndk/'llvm-ar.exe','--version']),('javac',[java/'javac.exe','-version'])]:
   version_result=run(args,env=ENV,cwd=ROOT/'codex-rs',capture=True);versions[name]=(version_result.stdout or version_result.stderr or '').strip()
  assert versions['rustc'].startswith('rustc 1.95.0 '),'WRONG_RUST_VERSION'
@@ -68,7 +75,7 @@ def main():
   expected=[n for n in names if case in n and 'phone_realtime' not in n and 'stdio_driver' not in n];assert len(expected)>=minimum,'REQUIRED_PRODUCTION_TESTS_NOT_COLLECTED'
   result=run([hostexe,case,'--skip','phone_realtime','--skip','stdio_driver','--test-threads=1'],env=ENV,capture=True)
   count=test_count(result.stdout);assert count==len(expected),'COLLECTED_EXECUTED_TEST_COUNT_MISMATCH';suite.append({'filter':case,'passed':count})
- cross=android_env(ENV,ndkroot)
+ cross=build_android_environment(runtime_env,ndkroot,ndk,qualified_perl)
  built=run(['cargo','test','--locked','--profile','ci-test','--lib','-p','codex-app-server-transport','--target','aarch64-linux-android','--no-run','--message-format=json-render-diagnostics'],cwd=ROOT/'codex-rs',env=cross,capture=True)
  executable=artifact(built.stdout);assert executable.is_file()
  native=WORK/'libvibetramoffline.so';shutil.copyfile(executable,native);run([ndk/'llvm-strip.exe','--strip-unneeded',native]);elf_check(native.read_bytes())
@@ -122,8 +129,13 @@ def main():
  badging=run([bt/'aapt2.exe','dump','badging',apk],capture=True).stdout
  assert "name='org.local.vibetrammobile'" in badging and "versionCode='93'" in badging and "versionName='1.91-alpha-offline'" in badging and "sdkVersion:'29'" in badging and "targetSdkVersion:'35'" in badging,'COMPILED_PACKAGE_IDENTITY_MISMATCH'
  assert sha(lockfile)==lock_hash;source_check(ROOT)
+ redaction={'state':'UNRUN_RESOURCE_WINDOW','reason':'Less than fifteen minutes remained after the primary build/package checks'}
+ if MAX_SECONDS-GUARD.report()['elapsedSeconds']>=900 and GUARD.report()['retainedPeakBytes']<=MAX_OUTPUT-8*1024**3 and shutil.disk_usage(ROOT).free>=MIN_FREE+8*1024**3:
+  result=run(['cargo','test','--locked','--profile','ci-test','--bin','codex','-p','codex-cli','missing_env_diagnostics_in_json_and_text','--','--test-threads=1'],cwd=ROOT/'codex-rs',env=ENV,capture=True)
+  assert test_count(result.stdout)==1,'FOCUSED_REDACTION_TEST_COUNT'
+  redaction={'state':'PASS_FOCUSED_RUST_REDACTION_FIXTURE','passed':1,'filter':'missing_env_diagnostics_in_json_and_text','realCredentialsUsed':False}
  source=OUT/'Vibetram-Alpha-1.91-source.zip';run(['git','archive','--format=zip','--output',source,commit])
- report={'state':'UNSIGNED_HOSTED_BUILD_VERIFIED_NOT_A_RELEASE','commit':commit,'APK':apk.name,'APKBytes':apk.stat().st_size,'APK_SHA256':sha(apk),'sourceZip':source.name,'sourceZipSHA256':sha(source),'nativeSHA256':nh,'hostNativeSHA256':sha(hostexe),'sourceID':source_id,'lockSHA256':lock_hash,'nativeTests':suite,'javaTests':java_results,'testedD8InputClasses':len(class_files),'nativeRuntimeDependencies':needed,'compiledDependenciesCovered':len(compiled_dependencies),'toolVersions':versions,'signed':False,'releasable':False,'phoneTesting':'PENDING','offlineOnly':True,'resourcesStoredAndAligned':True,'nativeFileAndLoad16KiBAligned':True,'compiledPermissions':0,'monitor':GUARD.report()}
+ report={'state':'UNSIGNED_HOSTED_BUILD_VERIFIED_NOT_A_RELEASE','commit':commit,'APK':apk.name,'APKBytes':apk.stat().st_size,'APK_SHA256':sha(apk),'sourceZip':source.name,'sourceZipSHA256':sha(source),'nativeSHA256':nh,'hostNativeSHA256':sha(hostexe),'sourceID':source_id,'lockSHA256':lock_hash,'nativeTests':suite,'javaTests':java_results,'focusedRedactionTest':redaction,'testedD8InputClasses':len(class_files),'nativeRuntimeDependencies':needed,'compiledDependenciesCovered':len(compiled_dependencies),'toolVersions':versions,'signed':False,'releasable':False,'phoneTesting':'PENDING','offlineOnly':True,'resourcesStoredAndAligned':True,'nativeFileAndLoad16KiBAligned':True,'compiledPermissions':0,'monitor':GUARD.report()}
  (OUT/'provenance.json').write_text(json.dumps(report,indent=2),encoding='utf-8');print(json.dumps(report,indent=2),flush=True)
 if __name__=='__main__':main()
 

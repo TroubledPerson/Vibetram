@@ -7,6 +7,9 @@ ARCHIVE_BYTES=9223
 URL="https://cpan.metacpan.org/authors/id/J/JE/JESSE/Locale-Maketext-Simple-0.21.tar.gz"
 PREFIX="Locale-Maketext-Simple-0.21"
 GIT_PERL_SHA="c0e2fb0e8be3962cdc7aa1391f104df6502191029ec15977a37623afb32c7b36"
+def owned_pair(root,work,out):
+ return (work,out) in ((root/"openssl-probe-work",root/"openssl-probe-output"),(root/"ci-work",root/"dist"))
+
 def review(data):
  assert len(data)==ARCHIVE_BYTES and hashlib.sha256(data).hexdigest()==ARCHIVE_SHA,"PINNED_CPAN_ARCHIVE_MISMATCH"
  selected={};seen=set();total=0
@@ -33,7 +36,7 @@ def review(data):
  return selected,{"archiveSHA256":ARCHIVE_SHA,"archiveBytes":len(data),"moduleSHA256":MODULE_SHA,"declaredRuntimeDependencies":{},"observedCoreImports":["strict"],"optionalBranchImports":["Locale::Maketext::Lexicon","File::Spec","base/Locale::Maketext"],"optionalLexicon":"Documented fallback when Locale::Maketext::Lexicon is absent; focused runtime test required","metadataLicense":"perl; complete original module/README/META/Makefile notices retained","memberCount":len(members),"uncompressedBytes":total,"sourceReviewedBeforeCopy":True}
 def prepare(work,out):
  root=pathlib.Path(__file__).resolve().parents[1]
- assert work==root/"openssl-probe-work" and out==root/"openssl-probe-output" and work.is_dir() and out.is_dir(),"OWNED_OVERLAY_SCOPE"
+ assert owned_pair(root,work,out) and work.is_dir() and out.is_dir(),"OWNED_OVERLAY_SCOPE"
  target=work/"perl-overlay";assert not target.exists(),"PRESERVE_EXISTING_OVERLAY"
  class NoRedirect(urllib.request.HTTPRedirectHandler):
   def redirect_request(self,*args,**kwargs):raise AssertionError("CPAN_REDIRECT_STOP")
@@ -62,7 +65,7 @@ def parse_overlay_path(text):
  fields=rows[0].split("\t");assert len(fields)==3 and fields[0]=="OVERLAY" and fields[2]==MODULE_SHA,"OVERLAY_PIN_PROTOCOL"
  value=fields[1];p=pathlib.PurePosixPath(value)
  assert p.is_absolute() and not value.startswith("//") and ".." not in p.parts and re.fullmatch(r"/[A-Za-z0-9_./+-]+",value),"OVERLAY_POSIX_SCOPE"
- assert value.endswith("/openssl-probe-work/perl-overlay/lib"),"OVERLAY_PATH_SUFFIX"
+ assert value.endswith(("/openssl-probe-work/perl-overlay/lib","/ci-work/perl-overlay/lib")),"OVERLAY_PATH_SUFFIX"
  return value
 def focused_program():
  return r'''use strict;
@@ -161,7 +164,7 @@ def runtime_review(data,pin):
 
 def runtime_prepare(work,out):
  root=pathlib.Path(__file__).resolve().parents[1]
- assert work==root/"openssl-probe-work" and out==root/"openssl-probe-output" and work.is_dir() and out.is_dir(),"RUNTIME_OWNED_SCOPE"
+ assert owned_pair(root,work,out) and work.is_dir() and out.is_dir(),"RUNTIME_OWNED_SCOPE"
  target=work/"runtime-packages";target.mkdir() # exclusive; preserve any previous result
  class NoRedirect(urllib.request.HTTPRedirectHandler):
   def redirect_request(self,*args,**kwargs):raise AssertionError("RUNTIME_CPAN_REDIRECT")
@@ -323,6 +326,93 @@ die "unexpected selected templates" unless @templates==2 && $templates[0] eq "Co
 print JSON::PP::encode_json({state=>"PASS_ACTUAL_GENERATED_CONFIGURATION_HELPERS",checks=>5,target=>$configdata::config{target},buildFile=>$configdata::config{build_file},templates=>\@templates,platform=>$platform::ISA[0]}),chr(10);
 '''
 
+
+def cargo_prefix_bridge_program():
+ return r'''package Vibetram::ConfigurePaths;
+use strict;
+use warnings;
+use Cwd ();
+use Digest::SHA ();
+sub import {
+ return unless $0 =~ m{(?:^|[/\\])Configure$};
+ my $root=$ENV{VIBETRAM_OPENSSL_WORK};my $pin=$ENV{VIBETRAM_OPENSSL_CONFIGURE_SHA};
+ die "missing qualified build root" unless defined($root) && defined($pin) && $pin =~ /^[a-f0-9]{64}$/;
+ $root=Cygwin::win_to_posix_path($root,1);$root=~s{/$}{};
+ my $cwd=Cwd::getcwd();die "Configure outside owned work" unless index(lc($cwd),lc($root)."/")==0;
+ open my $f,"<","./Configure" or die "pinned Configure unavailable";binmode($f);
+ my $hash=Digest::SHA->new(256)->addfile($f)->hexdigest;close($f) or die "Configure close";
+ die "Configure identity changed" unless $hash eq $pin;
+ return unless grep {$_ eq "linux-aarch64"} @ARGV;
+ my @prefix=grep {$ARGV[$_] =~ /^--prefix=/} 0..$#ARGV;die "Configure prefix count" unless @prefix==1;
+ my $value=substr($ARGV[$prefix[0]],9);die "unsafe prefix characters" unless $value =~ m{^(?:[A-Za-z]:)?/[A-Za-z0-9_./+-]+$};
+ die "prefix traversal" if grep {$_ eq "." || $_ eq ".."} split m{/},$value;
+ my $posix=Cygwin::win_to_posix_path($value,1);
+ die "prefix outside owned work" unless index(lc($posix),lc($root)."/")==0;
+ my $relative=substr($posix,length($root)+1);
+ die "unexpected OpenSSL install scope" unless $relative eq "install" || $relative =~ m{^target/aarch64-linux-android/ci-test/build/openssl-sys-[a-f0-9]{1,64}/out/openssl-build/install$};
+ $ARGV[$prefix[0]]="--prefix=".$posix;
+ print STDERR "VIBETRAM_PINNED_OPENSSL_PREFIX_QUALIFIED\n";
+}
+1;
+'''
+
+def install_cargo_prefix_bridge(env,work,src):
+ assert env.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1","BUILD_BRIDGE_MODE"
+ target=work/"runtime-overlay/lib/Vibetram/ConfigurePaths.pm";target.parent.mkdir()
+ with target.open("x",encoding="ascii") as f:f.write(cargo_prefix_bridge_program())
+ result=env.copy();result.update(PERL5OPT="-MVibetram::ConfigurePaths",VIBETRAM_OPENSSL_WORK=str(work),VIBETRAM_OPENSSL_CONFIGURE_SHA=hashlib.sha256((src/"Configure").read_bytes()).hexdigest())
+ return result
+
+def build_android_environment(env,ndk,tools,perl):
+ cross=configure_environment(env,ndk,tools,perl)
+ make_dir=ndk/"prebuilt/windows-x86_64/bin"
+ cross["PATH"]=str(make_dir)+os.pathsep+cross["PATH"]
+ cross.update(CC_aarch64_linux_android="clang.exe",CXX_aarch64_linux_android="clang++.exe",AR_aarch64_linux_android="llvm-ar.exe",RANLIB_aarch64_linux_android="llvm-ranlib.exe",SHELL=(perl.parent/"sh.exe").as_posix(),MAKEFLAGS="-j1")
+ return cross
+
+def tiny_makefile(posix):
+ assert re.fullmatch(r"/[A-Za-z0-9_./+-]+/ci-work/tool-smoke",posix) and ".." not in pathlib.PurePosixPath(posix).parts,"SMOKE_OUTPUT_SCOPE"
+ return "VIBETRAM_SMOKE_DIR="+posix+r'''
+.PHONY: VIBETRAM_TOOLCHAIN_SMOKE
+VIBETRAM_TOOLCHAIN_SMOKE:
+	@$(PERL) -e 'print "PASS_GENERATED_MAKE_PERL\\n"'
+	$(CC) --target=aarch64-linux-android29 -fPIC -c $(VIBETRAM_SMOKE_DIR)/probe.c -o $(VIBETRAM_SMOKE_DIR)/probe.o
+	$(AR) crs $(VIBETRAM_SMOKE_DIR)/probe.a $(VIBETRAM_SMOKE_DIR)/probe.o
+	$(RANLIB) $(VIBETRAM_SMOKE_DIR)/probe.a
+	$(CC) --target=aarch64-linux-android29 -shared -fPIC -Wl,-z,max-page-size=16384 $(VIBETRAM_SMOKE_DIR)/probe.o -o $(VIBETRAM_SMOKE_DIR)/probe.so
+'''
+
+def qualify_make_link(guard,env,work,out,src,perl,elf_validator):
+ from openssl_probe import PHYSICAL_SDK
+ from ndk_input_metadata import capture_one
+ import shutil
+ ndk=PHYSICAL_SDK/"ndk/30.0.16248370";tools=ndk/"toolchains/llvm/prebuilt/windows-x86_64/bin"
+ make=ndk/"prebuilt/windows-x86_64/bin/make.exe";shell=perl.parent/"sh.exe";lld=tools/"ld.lld.exe";readelf=tools/"llvm-readelf.exe"
+ cross=build_android_environment(env,ndk,tools,perl);results={};leases={}
+ def execute():
+  assert pathlib.Path(shutil.which("make.exe",path=cross["PATH"]) or "")==make,"WRONG_SELECTED_MAKE"
+  linker=env.get("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER");assert linker and pathlib.Path(shutil.which("link.exe",path=cross["PATH"]) or "")==pathlib.Path(linker),"HOST_LINKER_PATH_COLLISION"
+  versions={name:guard.run([tool,"--version"],env=cross,capture=True,timeout=30).stdout.strip()[:2048] for name,tool in (("make",make),("shell",shell),("lld",lld))}
+  assert versions["make"].startswith("GNU Make ") and "GNU bash" in versions["shell"] and "LLD" in versions["lld"],"UNEXPECTED_BUILD_TOOL_VERSION"
+  smoke=work/"tool-smoke";smoke.mkdir();(smoke/"probe.c").write_text("int vibetram_offline_link_probe(void) { return 7; }\n",encoding="ascii")
+  converter=work/"smoke-posix.pl";converter.write_text('print Cygwin::win_to_posix_path($ARGV[0],1),chr(10);',encoding="ascii")
+  posix=guard.run([perl,converter,smoke],env=cross,capture=True,timeout=15).stdout.strip();recipe=smoke/"smoke.mk";recipe.write_text(tiny_makefile(posix),encoding="ascii")
+  result=guard.run([make,"-f","Makefile","-f",recipe,"-j1","VIBETRAM_TOOLCHAIN_SMOKE"],cwd=src,env=cross,capture=True,timeout=90)
+  assert "PASS_GENERATED_MAKE_PERL" in result.stdout,"GENERATED_MAKE_PERL_PATH_FAILED"
+  native=smoke/"probe.so";assert native.is_file(),"TINY_ANDROID_LINK_MISSING";elf_validator(native.read_bytes())
+  dynamic=guard.run([readelf,"-d",native],env=cross,capture=True,timeout=20).stdout
+  needed=re.findall(r"\(NEEDED\).*\[([^\]]+)\]",dynamic);assert all(x in ("libc.so","libdl.so","libm.so","liblog.so","libandroid.so") for x in needed),"SMOKE_RUNTIME_DEPENDENCY"
+  results.update(state="PASS_INSTALLED_MAKE_SHELL_ANDROID_ARCHIVE_LINK",tools={name:{"path":str(tool),"sha256":hashlib.sha256(tool.read_bytes()).hexdigest()} for name,tool in (("make",make),("shell",shell),("lld",lld))},versions=versions,nativeSHA256=hashlib.sha256(native.read_bytes()).hexdigest(),needed=needed,elf16KiBAligned=True,fixtureExecuted=False,makeWorkers=1,hostLinkerPreserved=True)
+ def step(i):
+  paths=((ndk,make),(shell.parent,shell),(ndk,lld),(ndk,readelf))
+  if i==len(paths):execute();return
+  root,tool=paths[i];lease=capture_one(root,tool,callback=lambda:step(i+1));leases[tool.name]=lease
+  assert lease["qualified"] and lease.get("callbackSucceeded"),"INSTALLED_MAKE_LINK_INPUT_OR_PROBE_FAILED"
+ try:step(0)
+ finally:
+  text=json.dumps({"result":results,"inputLeases":leases},indent=2)+"\n";(out/"make-link-qualification.json").write_text(text,encoding="utf-8");print(text,flush=True)
+ return cross,results
+
 def configure_environment(env,ndk,tools,perl):
  from build_guard import android_env
  from openssl_probe import PHYSICAL_SDK
@@ -330,7 +420,10 @@ def configure_environment(env,ndk,tools,perl):
  cross.update(ANDROID_HOME=str(PHYSICAL_SDK),ANDROID_SDK_ROOT=str(PHYSICAL_SDK),OPENSSL_SRC_PERL=str(perl),PERL=str(perl),CC="clang.exe",CFLAGS="--target=aarch64-linux-android29",AR="llvm-ar.exe",ARFLAGS="crs",RANLIB="llvm-ranlib.exe")
  # Basenames avoid shell parsing of spaces; actual PATH lookup is identity-checked
  # against the leased physical NDK files immediately before Configure.
- cross["PATH"]=str(tools)+os.pathsep+str(perl.parent)+os.pathsep+env["PATH"]
+ host=env.get("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER")
+ prefixes=[str(tools)]+([str(pathlib.Path(host).parent)] if host else [])+[str(perl.parent)]
+ cross["PATH"]=os.pathsep.join(prefixes+[env["PATH"]])
+ if env.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1":cross["PERL"]="perl.exe"
  return cross
 
 def configure_lookup_program():
@@ -355,14 +448,15 @@ def configure_with_runtime(guard,env,work,out,src,perl,ndk,tools):
  found=json.loads(guard.run([perl,lookup,tools/"clang.exe",tools/"llvm-ar.exe",tools/"llvm-ranlib.exe",work/"install"],cwd=src,env=cross,capture=True,timeout=20).stdout)
  assert set(found)=={"state","checks","compilerExecuted","prefix"} and found["state"]=="PASS_EXACT_PHYSICAL_NDK_PATH_LOOKUP" and found["checks"]==3 and found["compilerExecuted"] is False,"CONFIGURE_LOOKUP_CHECKS"
  prefix=found["prefix"]
- assert type(prefix) is str and re.fullmatch(r"/[A-Za-z0-9_./+-]+/openssl-probe-work/install",prefix) and ".." not in pathlib.PurePosixPath(prefix).parts,"CONFIGURE_PREFIX_SCOPE"
+ assert type(prefix) is str and re.fullmatch(r"/[A-Za-z0-9_./+-]+/(?:openssl-probe-work|ci-work)/install",prefix) and ".." not in pathlib.PurePosixPath(prefix).parts,"CONFIGURE_PREFIX_SCOPE"
  guard.run([perl,"-c","./Configure"],cwd=src,env=cross,capture=True,timeout=25)
  guard.run([perl,"-e","require q(./Configurations/unix-checker.pm);"],cwd=src,env=cross,capture=True,timeout=15)
- command=[str(perl),*configure_args(prefix)]
+ command=[str(perl),*configure_args((work/"install").as_posix() if cross.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1" else prefix)]
  evidence={"argv":command,"environment":{"ANDROID_HOME":cross["ANDROID_HOME"],"ANDROID_SDK_ROOT":cross["ANDROID_SDK_ROOT"],"ANDROID_NDK_HOME":cross["ANDROID_NDK_HOME"],"CC":cross["CC"],"CFLAGS":cross["CFLAGS"],"AR":cross["AR"],"RANLIB":cross["RANLIB"],"PATHPrefix":[str(tools),str(perl.parent)]},"lookup":found,"configureAttempts":1,"makeRequested":False}
  print("ACTUAL_CONFIGURE_COMMAND "+json.dumps(evidence),flush=True)
  completed=guard.run(command,cwd=src,env=cross,capture=True,timeout=120)
  assert completed.returncode==0,"CONFIGURE_EXIT"
+ if cross.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1":assert "VIBETRAM_PINNED_OPENSSL_PREFIX_QUALIFIED" in completed.stderr,"CARGO_PREFIX_BRIDGE_NOT_EXECUTED"
  files={}
  for name in ("Makefile","configdata.pm"):
   p=src/name;assert p.is_file() and p.stat().st_size<16*1024**2,"CONFIGURE_OUTPUT_MISSING"
@@ -371,7 +465,7 @@ def configure_with_runtime(guard,env,work,out,src,perl,ndk,tools):
  assert "PLATFORM=linux-aarch64" in text and "--target=aarch64-linux-android29" in text,"CONFIGURE_TARGET_CHANGED"
  fields={}
  for line in text.splitlines():
-  if re.match(r"^(?:PLATFORM|CROSS_COMPILE|CC|AR|ARFLAGS|RANLIB|CFLAGS|CPPFLAGS|CNF_CFLAGS|CNF_CPPFLAGS|OPTIONS)=",line):
+  if re.match(r"^(?:PLATFORM|CROSS_COMPILE|CC|AR|ARFLAGS|RANLIB|PERL|CFLAGS|CPPFLAGS|CNF_CFLAGS|CNF_CPPFLAGS|OPTIONS)=",line):
    key,value=line.split("=",1);assert key not in fields and len(value)<=8192,"CONFIGURE_FIELD_BOUND";fields[key]=value
  assert fields.get("CROSS_COMPILE")=="" and all(fields.get(key)=="$(CROSS_COMPILE)"+name for key,name in (("CC","clang.exe"),("AR","llvm-ar.exe"),("RANLIB","llvm-ranlib.exe"))),"CONFIGURE_TOOL_SELECTION_CHANGED"
  # Configure's real no-argument configdata.pm invocation generated these files.
@@ -389,28 +483,19 @@ def configure_with_runtime(guard,env,work,out,src,perl,ndk,tools):
  assert "Disabled features:" in options_result.stdout,"GENERATED_OPTIONS_REPORT"
  header=src/"include/openssl/configuration.h";assert header.is_file(),"GENERATED_CONFIGURATION_HEADER_MISSING"
  files["include/openssl/configuration.h"]={"bytes":header.stat().st_size,"sha256":hashlib.sha256(header.read_bytes()).hexdigest()}
+ if cross.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1":assert fields.get("PERL")=="perl.exe","GENERATED_MAKE_PERL_NOT_BASENAME"
  evidence["generatedExecution"]={"helpers":generated,"syntaxChecked":True,"helpBytes":len(help_result.stdout.encode()),"buildParametersBytes":len(build_result.stdout.encode()),"optionsBytes":len(options_result.stdout.encode()),"regenerationDuringConfigure":True,"networkRequested":False,"externalPerldocRequested":False}
  evidence.update(state="PASS_ACTUAL_CONFIGURE_ONLY_NOT_COMPILED",exitCode=completed.returncode,files=files,makefileFields=fields,stdout=completed.stdout[-8192:],stderr=completed.stderr[-4096:],compilationRequested=False,compilerVersionQueriesAllowed=True)
  (out/"actual-configure.json").write_text(json.dumps(evidence,indent=2)+"\n",encoding="utf-8");print("ACTUAL_CONFIGURE_RESULT "+json.dumps(evidence),flush=True)
  return evidence
 
-def runtime_diagnosis(configure=False):
- from openssl_probe import ROOT,PREFIX,probe_layout,probe_environment,with_physical_ndk_inputs
- from build_guard import Guard,MIN_FREE,MAX_OUTPUT
- from check_source import source_check
+def qualify_prepared_runtime(guard,env,work,out,src,configure=True):
+ from openssl_probe import ROOT,with_physical_ndk_inputs
  from perl_prerequisites import inventory
  from ndk_input_metadata import capture_one
- import shutil
- assert os.name=="nt" and os.environ.get("GITHUB_REPOSITORY")=="TroubledPerson/Vibetram" and os.environ.get("GITHUB_REF")=="refs/heads/main"
- event=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text());assert os.environ["GITHUB_EVENT_NAME"]=="push" and ("[openssl-probe-191]" if configure else "[perl-runtime-191]") in event["head_commit"]["message"]
- source_check(ROOT);work,out,cargo,rustup=probe_layout(ROOT)
- assert not any(p.exists() for p in (work,out,cargo,rustup)),"PRESERVE_RUNTIME_OUTPUTS"
- assert shutil.disk_usage(ROOT).free>=MIN_FREE+MAX_OUTPUT
- for p in (work,out,cargo,rustup):p.mkdir()
- for p in ("tmp","home","profile","profile/AppData/Local","profile/AppData/Roaming"):(work/p).mkdir(parents=True,exist_ok=True)
- env=probe_environment(work,cargo,rustup);guard=Guard(ROOT,work,out,env)
- guard.run([sys.executable,"-B",ROOT/"ci/openssl_probe.py","--materialize",work],env=env,timeout=180)
- src=work/"crate"/PREFIX/"openssl";_,original=inventory(guard,env,work,out,src)
+ from check_source import source_check
+ assert owned_pair(ROOT,work,out),"SHARED_RUNTIME_OWNED_SCOPE"
+ _,original=inventory(guard,env,work,out,src)
  selected,env,_=repair_git_perl(guard,env,work,out,src,original);guard.env=env;perl=pathlib.Path(selected["path"])
  guard.run([sys.executable,"-B",__file__,"--runtime-prepare",work,out],env=env,timeout=180)
  plan=json.loads((out/"runtime-package-plan.json").read_text());providers=plan["providers"]
@@ -425,8 +510,10 @@ def runtime_diagnosis(configure=False):
   with dest.open("xb") as f:f.write(body)
  resolver=work/"runtime-path.pl";resolver.write_text('use Cwd qw(abs_path); print abs_path("runtime-overlay/lib"),chr(10);',encoding="ascii")
  posix=guard.run([perl,resolver],cwd=work,env=env,capture=True,timeout=15).stdout.strip()
- assert re.fullmatch(r"/[A-Za-z0-9_./+-]+/openssl-probe-work/runtime-overlay/lib",posix) and ".." not in pathlib.PurePosixPath(posix).parts,"RUNTIME_PATH_SCOPE"
- env=env.copy();env["PERL5LIB"]=posix+":"+env["PERL5LIB"];guard.env=env
+ assert re.fullmatch(r"/[A-Za-z0-9_./+-]+/(?:openssl-probe-work|ci-work)/runtime-overlay/lib",posix) and ".." not in pathlib.PurePosixPath(posix).parts,"RUNTIME_PATH_SCOPE"
+ env=env.copy();env["PERL5LIB"]=posix+":"+env["PERL5LIB"]
+ if env.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1":env=install_cargo_prefix_bridge(env,work,src)
+ guard.env=env
  catalogue=configuration_source_closure(src) if configure else None
  if catalogue is not None:
   (out/"configuration-source-catalog.json").write_text(json.dumps(catalogue,indent=2)+"\n",encoding="utf-8")
@@ -464,6 +551,38 @@ def runtime_diagnosis(configure=False):
  report={"state":"PASS_RUNTIME_CONFIGURE_ONLY" if configure else "PASS_RUNTIME_DEPENDENCY_AND_HELPER_QUALIFICATION","packages":plan["packages"],"missingProviderCount":len(missing),"preservedInstalledProviderCount":len(providers)-len(missing),"requiredModuleCount":len(required),"moduleClosure":closure["modules"],"helperTests":results,"podRuntime":pod_result,"sourceCatalogue":catalogue,"configureExecuted":configure,"compilationRequested":False,"compilerVersionQueriesAllowed":configure,"configuration":configuration,"globalInstallationChanged":False,"limits":"Active Cygwin compiler-discovery helpers and declared runtime prerequisites; not every MakeMaker API or future configure/make/build path","monitor":guard.report()}
  text=json.dumps(report,indent=2)+"\n";assert len(text.encode())<65536
  (out/"runtime-qualification.json").write_text(text,encoding="utf-8");source_check(ROOT);print(text,flush=True)
+
+ return selected,env,report
+
+def bootstrap_for_cargo(guard,env,work,out):
+ from openssl_probe import ROOT,PREFIX
+ assert owned_pair(ROOT,work,out) and work==ROOT/"ci-work","CARGO_RUNTIME_OWNED_SCOPE"
+ assert env.get("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"),"QUALIFIED_HOST_LINKER_REQUIRED"
+ prepared=env.copy();prepared["VIBETRAM_OPENSSL_CARGO_BRIDGE"]="1"
+ guard.run([sys.executable,"-B",ROOT/"ci/openssl_probe.py","--materialize",work],env=prepared,timeout=180)
+ src=work/"crate"/PREFIX/"openssl"
+ selected,prepared,report=qualify_prepared_runtime(guard,prepared,work,out,src,configure=True)
+ assert report["state"]=="PASS_RUNTIME_CONFIGURE_ONLY","CARGO_RUNTIME_PREFLIGHT_FAILED"
+ return prepared,pathlib.Path(selected["path"]),src,report
+
+def runtime_diagnosis(configure=False):
+ from openssl_probe import ROOT,PREFIX,probe_layout,probe_environment,with_physical_ndk_inputs
+ from build_guard import Guard,MIN_FREE,MAX_OUTPUT
+ from check_source import source_check
+ from perl_prerequisites import inventory
+ from ndk_input_metadata import capture_one
+ import shutil
+ assert os.name=="nt" and os.environ.get("GITHUB_REPOSITORY")=="TroubledPerson/Vibetram" and os.environ.get("GITHUB_REF")=="refs/heads/main"
+ event=json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text());assert os.environ["GITHUB_EVENT_NAME"]=="push" and ("[openssl-probe-191]" if configure else "[perl-runtime-191]") in event["head_commit"]["message"]
+ source_check(ROOT);work,out,cargo,rustup=probe_layout(ROOT)
+ assert not any(p.exists() for p in (work,out,cargo,rustup)),"PRESERVE_RUNTIME_OUTPUTS"
+ assert shutil.disk_usage(ROOT).free>=MIN_FREE+MAX_OUTPUT
+ for p in (work,out,cargo,rustup):p.mkdir()
+ for p in ("tmp","home","profile","profile/AppData/Local","profile/AppData/Roaming"):(work/p).mkdir(parents=True,exist_ok=True)
+ env=probe_environment(work,cargo,rustup);guard=Guard(ROOT,work,out,env)
+ guard.run([sys.executable,"-B",ROOT/"ci/openssl_probe.py","--materialize",work],env=env,timeout=180)
+ src=work/"crate"/PREFIX/"openssl"
+ qualify_prepared_runtime(guard,env,work,out,src,configure=configure)
 
 if __name__=="__main__":
  if len(sys.argv)==2 and sys.argv[1]=="--runtime-configure":runtime_diagnosis(configure=True)

@@ -196,4 +196,64 @@ class EndToEndConfiguration(unittest.TestCase):
   from perl_overlay import RUNTIME_PACKAGES
   self.assertEqual([x[4] for x in RUNTIME_PACKAGES[4:]],["2.05","3.28","1.302210","0.024"])
 
+
+class CargoRuntimeIntegration(unittest.TestCase):
+ def test_two_exact_owned_pairs(self):
+  import pathlib
+  from perl_overlay import owned_pair
+  root=pathlib.Path("D:/synthetic")
+  self.assertTrue(owned_pair(root,root/"ci-work",root/"dist"));self.assertTrue(owned_pair(root,root/"openssl-probe-work",root/"openssl-probe-output"))
+  for a,b in (("other","dist"),("ci-work","other"),("ci-work","openssl-probe-output")):
+   self.assertFalse(owned_pair(root,root/a,root/b))
+ def test_build_overlay_resolver_suffix(self):
+  from perl_overlay import parse_overlay_path
+  s="/d/a/Vibetram/Vibetram/ci-work/perl-overlay/lib"
+  self.assertEqual(parse_overlay_path("OVERLAY\t"+s+"\t"+MODULE_SHA+"\n"),s)
+ def test_cross_path_keeps_microsoft_linker_priority(self):
+  import pathlib,os
+  from perl_overlay import build_android_environment
+  from openssl_probe import PHYSICAL_SDK
+  link=pathlib.Path("C:/qualified-vs/bin/link.exe");perl=pathlib.Path("C:/Program Files/Git/usr/bin/perl.exe");ndk=PHYSICAL_SDK/"ndk/30.0.16248370";tools=ndk/"toolchains/llvm/prebuilt/windows-x86_64/bin"
+  env={"PATH":"original","CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER":str(link),"VIBETRAM_OPENSSL_CARGO_BRIDGE":"1","PERL5OPT":"-MVibetram::ConfigurePaths","PERL5LIB":"/job/lib"}
+  out=build_android_environment(env,ndk,tools,perl);parts=out["PATH"].split(os.pathsep)
+  self.assertLess(parts.index(str(link.parent)),parts.index(str(perl.parent)));self.assertEqual(parts[0],str(ndk/"prebuilt/windows-x86_64/bin"));self.assertEqual(out["CC_aarch64_linux_android"],"clang.exe");self.assertEqual(out["PERL"],"perl.exe");self.assertEqual(out["MAKEFLAGS"],"-j1");self.assertEqual(env["PATH"],"original");self.assertEqual(out["PERL5OPT"],env["PERL5OPT"])
+ def test_tiny_recipe_actual_tabs_and_no_execution(self):
+  from perl_overlay import tiny_makefile
+  s=tiny_makefile("/d/a/Vibetram/Vibetram/ci-work/tool-smoke")
+  commands=[x for x in s.splitlines() if x.startswith("\t")];self.assertEqual(len(commands),5);self.assertIn("--target=aarch64-linux-android29 -shared",s);self.assertIn("$(AR) crs",s);self.assertNotIn("./probe.so",s)
+ def test_tiny_output_scope(self):
+  from perl_overlay import tiny_makefile
+  for p in ("/other/output","/d/a/ci-work/../tool-smoke","/d/a/ci-work/tool-smoke;command"):
+   with self.assertRaises(AssertionError):tiny_makefile(p)
+ def test_bridge_narrow_and_read_only(self):
+  from perl_overlay import cargo_prefix_bridge_program
+  s=cargo_prefix_bridge_program();self.assertIn('unless $hash eq $pin',s);self.assertIn('prefix traversal',s);self.assertIn('openssl-sys-[a-f0-9]{1,64}',s);self.assertIn('$ARGV[$prefix[0]]="--prefix=".$posix',s);self.assertNotIn('File::Spec::',s);self.assertNotIn('system(',s);self.assertNotIn('open my $f,">"',s)
+ def test_bootstrap_uses_shared_implementation_once(self):
+  import pathlib,types
+  from unittest.mock import patch
+  import perl_overlay as p
+  from openssl_probe import ROOT
+  calls=[]
+  class G:
+   def run(self,args,**kwargs):calls.append(args)
+  original={"CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER":"synthetic-link"}
+  report={"state":"PASS_RUNTIME_CONFIGURE_ONLY"}
+  with patch("perl_overlay.qualify_prepared_runtime",return_value=({"path":"C:/qualified/perl.exe"},{"PERL5LIB":"/synthetic/job/lib"},report)) as shared:
+   _,_,_,result=p.bootstrap_for_cargo(G(),original,ROOT/"ci-work",ROOT/"dist")
+  self.assertIs(result,report);self.assertEqual(shared.call_count,1);self.assertEqual(len(calls),1);self.assertIn("--materialize",calls[0]);self.assertNotIn("VIBETRAM_OPENSSL_CARGO_BRIDGE",original)
+ def test_build_calls_production_shared_path(self):
+  import ast,inspect,cloud_build
+  tree=ast.parse(inspect.getsource(cloud_build.main));calls=[n.func.id for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)]
+  self.assertEqual(calls.count("bootstrap_for_cargo"),1);self.assertEqual(calls.count("qualify_make_link"),1);self.assertIn("build_android_environment",calls)
+ def test_build_imports_resolve(self):
+  import ast,inspect,importlib,cloud_build
+  tree=ast.parse(inspect.getsource(cloud_build))
+  for node in tree.body:
+   if isinstance(node,ast.ImportFrom):
+    module=importlib.import_module(node.module)
+    for alias in node.names:self.assertTrue(hasattr(module,alias.name),node.module+"."+alias.name)
+ def test_unsigned_lock_preflight_and_release_gate(self):
+  import pathlib
+  w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());self.assertIn("[unsigned-trial-191]",w["jobs"]["lock-diagnostic"]["if"]);self.assertEqual(w["jobs"]["release"]["if"],chr(36)+"{{ false }}");self.assertEqual(w["jobs"]["unsigned-qualification"]["permissions"],{"contents":"read"})
+
 if __name__=="__main__":unittest.main()
