@@ -445,4 +445,34 @@ class OptionalTelemetryCompletion(unittest.TestCase):
   c[0].observe=changing
   with self.assertRaises(AssertionError):self.invoke(c)
 
+
+class RustTelemetryCompletion(unittest.TestCase):
+ setup_case=OptionalTelemetryCompletion.setup_case
+ invoke=OptionalTelemetryCompletion.invoke
+ def rust_case(self):
+  c=self.setup_case();link=str(c[3]/'link.exe')
+  c[1][:]=[str(c[3]/'rustc.exe'),'--edition','2024','--target','x86_64-pc-windows-msvc','-C','linker='+link,str(c[3]/'tiny-msvc.rs'),'-o',str(c[3]/'tiny-msvc.exe')]
+  c[2].update(VIBETRAM_QUALIFIED_RUST_VCTIP='1',CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=link);return c
+ def test_rust_fixed_fixture_success(self):
+  c=self.rust_case();self.assertEqual(self.invoke(c)['fixture'],'TINY_RUST_MSVC');self.assertTrue(c[6]['stopped'])
+ def test_rust_contract_default_off(self):
+  c=self.rust_case();c[2].pop('VIBETRAM_QUALIFIED_RUST_VCTIP');self.assertIsNone(self.invoke(c));self.assertFalse(c[6]['stopped'])
+ def test_rust_wrong_target_fatal(self):
+  c=self.rust_case();c[1][4]='other-target'
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_rust_other_workload_not_relaxed(self):
+  c=self.rust_case();c[1][7]=str(c[3]/'app.rs');self.assertIsNone(self.invoke(c));self.assertFalse(c[6]['stopped'])
+ def test_rust_unknown_helper_fatal(self):
+  c=self.rust_case();c[7]['imageSHA256']='0'*64
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_rust_root_failure_fatal(self):
+  c=self.rust_case();c[6]['code']=1
+  with self.assertRaises(AssertionError):self.invoke(c)
+ def test_rust_bad_output_fatal(self):
+  c=self.rust_case()
+  def bad(*a):raise AssertionError('BAD_RUST_OUTPUT')
+  with self.assertRaises(AssertionError):self.invoke(c,bad)
+ def test_version_query_unchanged(self):
+  c=self.rust_case();c[1][:]=[c[1][0],'--version'];self.assertIsNone(self.invoke(c));self.assertFalse(c[6]['stopped'])
+
 if __name__=='__main__':unittest.main()

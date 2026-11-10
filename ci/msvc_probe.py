@@ -78,14 +78,15 @@ def owned_image(job,row,sampler=None):
  return {'pid':pid,'creationFiletime':before['creationFiletime'],'imageBaseName':path.name,'locationClass':category,'relativeImage':relative,'fileVersion':'.'.join(map(str,numbers)),'imageSHA256':identity['sha256'],'imageFileIdentity':identity['identity'],'processExitedAfterMetadata':after['exited'],'authenticodeNotCheckedByThisMetadataRead':True,'vendorResourceStrings':strings,'vendorResourceFieldsMissing':missing,'vendorCompanyMetadataMatchesMicrosoft':microsoft,'commandLineNotRead':True}
 
 
-def closed_compiler_outputs(work,proof):
+def closed_compiler_outputs(work,proof,rust=False):
  """Inspect only expected task-owned outputs after kernel zero-member proof.
  Retaining a valid file after forced cleanup does not make completion a pass.
  """
  import struct,stat,hashlib
  assert proof.get('processTreeExitIndependentlyVerified') is True and proof.get('activeMembers')==0 and proof.get('knownHandlesExited') is True,'COMPILER_OUTPUT_WRITERS_UNVERIFIED'
  rows=[]
- for name in ('tiny-sdk.obj','tiny-sdk.exe'):
+ assert type(rust) is bool,'FIXED_COMPILER_OUTPUT_SCOPE'
+ for name in (('tiny-msvc.exe',) if rust else ('tiny-sdk.obj','tiny-sdk.exe')):
   path=work/name;before=path.lstat();assert stat.S_ISREG(before.st_mode) and not getattr(before,'st_file_attributes',0)&0x400 and not getattr(before,'st_reparse_tag',0) and 0<before.st_size<=8*1024**2,'COMPILER_OUTPUT_TYPE_OR_BOUND'
   data=path.read_bytes();after=path.lstat();key=lambda m:(m.st_dev,m.st_ino,m.st_size,m.st_mtime_ns)
   assert key(before)==key(after),'COMPILER_OUTPUT_CHANGED'
@@ -123,12 +124,19 @@ def validate_telemetry_member(row):
 
 def compiler_completion(proc,args,env,work,stdout,stderr,sampler,describe=None,validate_outputs=None):
  if not env.get('VIBETRAM_VERIFIED_VCTIP'):return None
- if pathlib.Path(args[0]).name.lower()!='cl.exe':return None
- expected=['/nologo','/WX','/W4','/MT',str(work/'tiny-sdk.c'),'/Fo'+str(work/'tiny-sdk.obj'),'/Fe'+str(work/'tiny-sdk.exe')]
+ rust=pathlib.Path(args[0]).name.lower() in ('rustc','rustc.exe')
+ if rust:
+  if env.get('VIBETRAM_QUALIFIED_RUST_VCTIP')!='1' or str(work/'tiny-msvc.rs') not in [str(x) for x in args]:return None
+  linker=env['CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER']
+  assert pathlib.Path(linker).is_absolute() and pathlib.Path(linker).name.lower()=='link.exe','RUST_COMPLETION_EXPLICIT_LINKER'
+  expected=['--edition','2024','--target','x86_64-pc-windows-msvc','-C','linker='+linker,str(work/'tiny-msvc.rs'),'-o',str(work/'tiny-msvc.exe')]
+ elif pathlib.Path(args[0]).name.lower()=='cl.exe':
+  expected=['/nologo','/WX','/W4','/MT',str(work/'tiny-sdk.c'),'/Fo'+str(work/'tiny-sdk.obj'),'/Fe'+str(work/'tiny-sdk.exe')]
+ else:return None
  assert [str(x) for x in args[1:]]==expected,'COMPILER_COMPLETION_SCOPE'
  assert env['VIBETRAM_VERIFIED_VCTIP']==VCTIP_SHA256,'COMPILER_COMPLETION_SIGNATURE_ATTESTATION'
  assert proc.poll()==0,'COMPILER_COMPLETION_ROOT_EXIT'
- describe=describe or owned_image;validate_outputs=validate_outputs or closed_compiler_outputs
+ describe=describe or owned_image;validate_outputs=validate_outputs or (lambda w,p:closed_compiler_outputs(w,p,rust=rust))
  import hashlib,stat
  def captured():
   result=[]
@@ -153,7 +161,7 @@ def compiler_completion(proc,args,env,work,stdout,stderr,sampler,describe=None,v
  assert all(r['exited'] for r in proof['heldIdentities']),'COMPILER_COMPLETION_SURVIVING_HANDLE'
  assert captured()==logs,'COMPILER_CAPTURE_CHANGED_AFTER_STOP'
  outputs=validate_outputs(work,proof)
- proof['optionalCompilerCompletion']={'state':'VERIFIED_OPTIONAL_TELEMETRY_CLEANUP','rootExit':0,'helperIdentity':member,'capturedLogsUnchanged':True,'outputs':outputs,'allMembersAccounted':True,'purposeGuidanceURL':'https://developercommunity.visualstudio.com/t/11157272','guidanceScope':'14.50; exact 14.51 separately tested','normalWorkloadSuccessNotInferredFromTermination':True}
+ proof['optionalCompilerCompletion']={'state':'VERIFIED_OPTIONAL_TELEMETRY_CLEANUP','rootExit':0,'fixture':'TINY_RUST_MSVC' if rust else 'TINY_C_MSVC','helperIdentity':member,'capturedLogsUnchanged':True,'outputs':outputs,'allMembersAccounted':True,'purposeGuidanceURL':'https://developercommunity.visualstudio.com/t/11157272','guidanceScope':'14.50; exact 14.51 separately tested','normalWorkloadSuccessNotInferredFromTermination':True}
  return proof['optionalCompilerCompletion']
 
 
@@ -169,25 +177,29 @@ def setup_only_main():
  source_check(ROOT);work=ROOT/'msvc-probe-work';out=ROOT/'msvc-probe-output';assert not work.exists() and not out.exists();assert shutil.disk_usage(ROOT).free>=MIN_FREE+MAX_OUTPUT
  work.mkdir();out.mkdir()
  for name in ('tmp','home','profile','profile/AppData/Local','profile/AppData/Roaming'):(work/name).mkdir(parents=True,exist_ok=True)
- env=clean_env(os.environ,work);observations=[];captured={};contracts=[];optional='[setup-optional-191]' in event['head_commit']['message'];compiler_only='[compiler-lifecycle-only-191]' in event['head_commit']['message']
+ env=clean_env(os.environ,work);observations=[];captured={};contracts=[];optional='[setup-optional-191]' in event['head_commit']['message'];compiler_only='[compiler-lifecycle-only-191]' in event['head_commit']['message'];rust_only='[rust-lifecycle-only-191]' in event['head_commit']['message']
  class ObservedSetup(OwnedProcess):
   def __init__(self):super().__init__();self.setup_target=False;self.compiler_target=False
   def start(self,args,cwd,env,**kw):
+   self.rust_target=rust_only and pathlib.Path(args[0]).name.lower() in ('rustc','rustc.exe') and str(work/'tiny-msvc.rs') in [str(x) for x in args]
    self.compiler_target=compiler_only and pathlib.Path(args[0]).name.lower()=='cl.exe' and str(work/'tiny-sdk.c') in [str(x) for x in args]
+   self.compiler_target=self.compiler_target or self.rust_target
    self.setup_target=not compiler_only and len(args)==4 and pathlib.Path(args[0])==pathlib.Path(env['SystemRoot'])/'System32/cmd.exe' and args[1:3]==['/d','/c'] and pathlib.Path(args[3])==work/'msvc-setup.cmd'
    return super().start(args,cwd,env,**kw)
   def finish(self,terminate=False,sampler=None,seconds=3):
    if (self.setup_target or self.compiler_target) and not terminate and self.teardown is None:
-    row={'phase':'compiler' if self.compiler_target else 'setup'};observations.append(row);natural_setup_exit(self,sampler,lambda j,r:owned_image(j,r,sampler),row,seconds)
+    row={'phase':'rust' if self.rust_target else ('compiler' if self.compiler_target else 'setup')};observations.append(row);natural_setup_exit(self,sampler,lambda j,r:owned_image(j,r,sampler),row,seconds)
    result=super().finish(terminate,sampler,seconds)
    if (self.setup_target or self.compiler_target) and observations:result['ownedCompletionObservation']=observations[-1]
    return result
  class SetupGuard(Guard):
   def run(self,args,*a,**kw):
-   if compiler_only and pathlib.Path(args[0]).name.lower() in ('rustc','rustc.exe'):
+   if compiler_only and not rust_only and pathlib.Path(args[0]).name.lower() in ('rustc','rustc.exe'):
     assert captured.get('compilerOutputsValidated'),'COMPILER_OUTPUTS_NOT_VALIDATED';raise SetupOnlyComplete('COMPILER_ONLY_COMPLETE')
    is_compiler=compiler_only and pathlib.Path(args[0]).name.lower()=='cl.exe' and str(work/'tiny-sdk.c') in [str(x) for x in args]
    if is_compiler:captured['compilerInvoked']=True;captured['rootCommandPurpose']='TINY_SDK_C_COMPILE_AND_LINK_WITHOUT_DEBUG_FLAGS'
+   is_rust=rust_only and pathlib.Path(args[0]).name.lower() in ('rustc','rustc.exe') and str(work/'tiny-msvc.rs') in [str(x) for x in args]
+   if is_rust:captured['rustInvoked']=True;captured['rustCommandPurpose']='TINY_PINNED_RUST_X64_MSVC_LINK_NO_APP_OR_CARGO'
    if optional and pathlib.Path(args[0]).name.lower()=='cl.exe' and str(work/'tiny-sdk.c') in [str(x) for x in args]:
     assert captured.get('requiredExportsPresent') and contracts,'SETUP_CONTRACT_NOT_QUALIFIED';raise SetupOnlyComplete('SETUP_ONLY_COMPLETE')
    if optional and len(args)==4 and pathlib.Path(args[-1])==work/'msvc-setup.cmd':
@@ -199,6 +211,7 @@ def setup_only_main():
    result=super().run(args,*a,**kw)
    if is_compiler:
     captured.update(compilerOutputsValidated=True,outputs=closed_compiler_outputs(work,guard.commands[-1]['ownedJobTeardown']),normalCompletionWithoutTermination=not guard.commands[-1]['ownedJobTeardown']['directJobTermination'])
+   if is_rust:captured.update(rustOutputs=closed_compiler_outputs(work,guard.commands[-1]['ownedJobTeardown'],rust=True),rustOutputsValidated=True)
    if len(args)==4 and pathlib.Path(args[-1])==work/'msvc-setup.cmd':
     exports=parse_exports(result.stdout);captured.update(requiredExportsPresent=True,x64HostAndTarget=exports['VSCMD_ARG_TGT_ARCH']==exports['VSCMD_ARG_HOST_ARCH']=='x64',stdoutBytes=len(result.stdout.encode()),stdoutSHA256=hashlib.sha256(result.stdout.encode()).hexdigest(),stderrBytes=len(result.stderr.encode()),outputsReadOnlyAfterZeroMemberProof=True)
     if not optional and not compiler_only:raise SetupOnlyComplete('SETUP_ONLY_COMPLETE')
@@ -215,7 +228,9 @@ def setup_only_main():
      pins=json.loads((work/'msvc-qualification.json').read_text());assert pins.get('qualifiedToolPinsVerified') is True and pins['compiledTinyFixtures']==0,'SETUP_PINNED_INPUTS_NOT_VERIFIED'
      report.update(pinnedInputsVerifiedBeforeCompile=True,compilerBoundaryStoppedIntentionally=True)
     report.update(state=('PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP' if any(r['ownedJobTeardown'].get('optionalCompilerCompletion') for r in guard.commands) else 'PASS_COMPILER_ONLY_NATURAL_EXIT') if compiler_only else 'PASS_SETUP_ONLY_NATURAL_EXIT',captured=captured)
-   else:raise AssertionError('SETUP_PROBE_COMPILATION_BOUNDARY')
+   else:
+    assert rust_only and captured.get('rustOutputsValidated'),'SETUP_PROBE_COMPILATION_BOUNDARY'
+    report.update(state='PASS_RUST_ONLY_NATURAL_OR_QUALIFIED_COMPLETION',stoppedBeforeCargo=True,captured=captured)
  finally:
   report.update(elapsedSeconds=time.monotonic()-start,commands=guard.commands,sampledNotQuota=True,compiledAnything=captured.get('compilerInvoked',False),captured=captured)
   if compiler_only and captured.get('compilerInvoked') and report['state'] not in ('PASS_COMPILER_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP'):
@@ -225,13 +240,16 @@ def setup_only_main():
     if proof.get('processTreeExitIndependentlyVerified') and proof.get('activeMembers')==0:
      try:report['retainedOutputsAfterFailureStop']=closed_compiler_outputs(work,proof)
      except BaseException as error:report['outputValidationFailureClass']=type(error).__name__
+     if captured.get('rustInvoked'):
+      try:report['retainedRustOutputsAfterFailureStop']=closed_compiler_outputs(work,proof,rust=True)
+      except BaseException as error:report['rustOutputValidationFailureClass']=type(error).__name__
   report['productionCompletionChanged']=any(r['ownedJobTeardown'].get('optionalCompilerCompletion') for r in guard.commands)
   text=json.dumps(report,indent=2);assert len(text.encode())<=32768
   print('SETUP_LIFECYCLE_REPORT\n'+text,flush=True)
   summary=os.environ.get('GITHUB_STEP_SUMMARY')
   if summary:
    with open(summary,'a',encoding='utf-8') as f:f.write('## MSVC setup-only lifecycle\n\n```json\n'+text+'\n```\n')
- assert report['state'] in ('PASS_SETUP_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP'),'SETUP_LIFECYCLE_UNQUALIFIED'
+ assert report['state'] in ('PASS_SETUP_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_NATURAL_EXIT','PASS_COMPILER_ONLY_QUALIFIED_TELEMETRY_CLEANUP','PASS_RUST_ONLY_NATURAL_OR_QUALIFIED_COMPLETION'),'SETUP_LIFECYCLE_UNQUALIFIED'
  source_check(ROOT)
 
 def main():
