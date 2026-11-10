@@ -184,4 +184,15 @@ class OptionalSetupContract(unittest.TestCase):
   import inspect,msvc_probe
   text=inspect.getsource(msvc_probe.setup_only_main);self.assertIn('qualifiedToolPinsVerified',text);self.assertIn('compiledTinyFixtures',text);self.assertIn('optional_setup_environment',text);self.assertIn("pathlib.Path(args[0]).name.lower()=='cl.exe'",text)
 
+
+class OptionalContractDiagnostics(unittest.TestCase):
+ def test_unknown_statement_reports_structure_without_private_payload(self):
+  import os,uuid,hashlib
+  from msvc_env import optional_setup_environment
+  root=pathlib.Path(os.environ.get('VIBETRAM_TEST_TMP',os.environ.get('RUNNER_TEMP',str(pathlib.Path(__file__).parents[1]/'ci-unit-output'))))/('contract-diag-'+uuid.uuid4().hex);root.mkdir(parents=True);setup=root/'VsDevCmd.bat'
+  text=OptionalSetupContract().text(extra='call :UnknownTask private_payload_must_not_be_disclosed');setup.write_text(text,encoding='utf-8');pins={'setupSHA256':hashlib.sha256(setup.read_bytes()).hexdigest()}
+  with self.assertRaisesRegex(AssertionError,'UNKNOWN_STATEMENT') as caught:optional_setup_environment({},setup,pins)
+  row=caught.exception.setup_contract_diagnostic;self.assertTrue(row['unrecognizedStatementsRemainFatal']);self.assertTrue(row['rawScriptNotPublished']);self.assertNotIn('private_payload',str(row));self.assertIn('call',[x['statementKind'] for x in row['branchStatementMetadata']])
+
 if __name__=='__main__':unittest.main()
+

@@ -96,7 +96,17 @@ def optional_setup_environment(env,setup,pins=None):
  text=data.decode('utf-8-sig')
  try:contract=telemetry_setup_contract(text)
  except BaseException as error:
-  error.setup_contract_diagnostic={'setupSHA256':digest,'optionalGuardLines':[{'line':i+1,'guard':line.strip()[:160]} for i,line in enumerate(text.splitlines()) if 'VSCMD_SKIP_SENDTELEMETRY' in line][:4],'telemetryMethodPresent':'Send-VsDevShellTelemetry' in text,'rawScriptNotPublished':True};raise
+  lines=text.splitlines();guards=[i for i,line in enumerate(lines) if 'VSCMD_SKIP_SENDTELEMETRY' in line];records=[]
+  if guards:
+   for i in range(guards[0],min(len(lines),guards[0]+24)):
+    line=lines[i].strip().lstrip('@').strip()
+    if not line or line.lower().startswith(('rem ','::')):continue
+    variables=re.findall(r'%([A-Za-z_][A-Za-z0-9_]*)%',line)
+    references=[v if v.upper().startswith(('VSCMD_','__VSCMD_','VSINSTALLDIR','VSAPPIDDIR','SYSTEMROOT')) else 'OTHER_VARIABLE_NAME_WITHHELD' for v in variables]
+    words=re.findall(r'[A-Za-z_][A-Za-z0-9_.-]*',line.lower());known=[word for word in words if word in ('if','else','not','defined','echo','set','call','start','powershell.exe','powershell','send-vsdevshelltelemetry','import-module','test-path')]
+    label=re.search(r'\bcall\s+:([A-Za-z_][A-Za-z0-9_]*)',line,re.I)
+    records.append({'line':i+1,'statementKind':words[0] if words else 'PUNCTUATION','knownControlAndPurposeTokens':known[:16],'referencedVendorVariables':references[:8],'simpleConditionLiterals':re.findall(r'"([0-9]{0,4})"',line)[:4],'labelCall':label.group(1) if label else None,'lineSHA256':hashlib.sha256(line.encode()).hexdigest()})
+  error.setup_contract_diagnostic={'setupSHA256':digest,'guardLineNumbers':[i+1 for i in guards][:4],'branchStatementMetadata':records,'telemetryMethodPresent':'Send-VsDevShellTelemetry' in text,'rawScriptNotPublished':True,'unrecognizedStatementsRemainFatal':True};raise
  after=setup.lstat();assert (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns),'SETUP_SCRIPT_CHANGED'
  for path,identity in chain:
   row=path.lstat();assert (row.st_dev,row.st_ino,row.st_mode)==identity and not getattr(row,'st_file_attributes',0)&0x400 and not getattr(row,'st_reparse_tag',0),'SETUP_SCRIPT_ANCESTOR_CHANGED'
