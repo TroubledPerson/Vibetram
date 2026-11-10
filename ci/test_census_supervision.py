@@ -326,4 +326,64 @@ class IsolatedOwnedJobs(unittest.TestCase):
   for change in ({'TOKEN':'synthetic'},{'PATH':'x'+chr(0)+'y'}):
    with self.assertRaises(AssertionError):owned_job_test_environment({**env,**change})
 
+
+
+
+class ProductionOwnedJobs(unittest.TestCase):
+ def fake(self,**options):
+  from census_supervisor import OwnedProcess
+  class API(FakeOwnedJobAPI):
+   def snapshot(self,h):return {**super().snapshot(h),'exitCode':0 if self.dead else None}
+  a=API(**options);j=OwnedProcess(a);j.process=10;j.thread=11;j.assigned=True;j.initial=a.snapshot(10);j.pid=1001;a.active=True;a.assigned=True;a.child=True;return a,j
+ def test_poll_after_verified_close_uses_observed_exit_without_reopening(self):
+  a,j=self.fake();j.finish(True);j.close();calls=len(a.calls);self.assertEqual(j.poll(),0);self.assertEqual(len(a.calls),calls)
+ def test_production_direct_stop_accounts_every_member(self):
+  a,j=self.fake();r=j.finish(True);self.assertTrue(r['processTreeExitIndependentlyVerified']);self.assertEqual(r['activeMembers'],0);self.assertEqual(r['heldIdentityCount'],2);self.assertEqual(a.calls.count('terminate'),1);j.close()
+ def test_parent_exit_does_not_skip_child_teardown(self):
+  a,j=self.fake();old=a.snapshot
+  a.snapshot=lambda h:{**old(h),'exited':True,'exitCode':0} if h==10 else old(h)
+  with self.assertRaisesRegex(RuntimeError,'DESCENDANTS_AFTER_PARENT'):j.finish()
+  self.assertEqual(a.calls.count('terminate'),1);self.assertTrue(j.teardown['processTreeExitIndependentlyVerified']);j.close()
+ def test_access_denial_never_falls_back_or_retries(self):
+  a,j=self.fake();a.fail='members'
+  with self.assertRaises(PermissionError):j.finish(True)
+  calls=len(a.calls);j.close();self.assertNotIn('terminate_unassigned',a.calls);self.assertEqual(a.calls[calls:],['close','close','close'])
+ def test_termination_denial_not_retried(self):
+  a,j=self.fake();a.fail='terminate'
+  with self.assertRaises(PermissionError):j.finish(True)
+  j.close();self.assertEqual(a.calls.count('terminate'),1);self.assertIsNone(j.teardown)
+ def test_changed_held_identity_rejected(self):
+  a,j=self.fake();old=a.snapshot;a.snapshot=lambda h:{**old(h),'creationFiletime':900}
+  with self.assertRaisesRegex(AssertionError,'IDENTITY_CHANGED'):j.finish(True)
+  j.close();self.assertIsNone(j.teardown)
+ def test_zero_pid_list_without_zero_active_count_cannot_pass(self):
+  a,j=self.fake(hang=True);a.members=lambda job:[];a.snapshot=lambda h:{'pid':1001,'creationFiletime':1,'exited':True,'exitCode':0};clock=[0]
+  with patch('census_supervisor.time.monotonic',side_effect=lambda:clock[0]),patch('census_supervisor.time.sleep',side_effect=lambda n:clock.__setitem__(0,clock[0]+n)):
+   with self.assertRaises(TimeoutError):j.finish(True,seconds=.03)
+  j.close();self.assertIsNone(j.teardown)
+ def test_supervision_failure_does_not_prevent_owned_stop(self):
+  a,j=self.fake()
+  def failure():raise AssertionError('SYNTHETIC_FLOOR')
+  r=j.finish(True,Sampler(failure));self.assertTrue(r['processTreeExitIndependentlyVerified']);self.assertIn('AssertionError',r['supervisionFailures']);j.close()
+ def test_failed_handle_close_is_not_successful_cleanup(self):
+  a,j=self.fake();j.finish(True);a.fail='close'
+  with self.assertRaisesRegex(RuntimeError,'CLOSE_UNCERTAIN'):j.close()
+ def test_production_and_census_use_owned_process_without_legacy_stop(self):
+  import inspect
+  self.assertIn('OwnedProcess()',inspect.getsource(Guard.run));self.assertIn('OwnedProcess()',inspect.getsource(run_census));self.assertNotIn('stop_compiler_tree(',inspect.getsource(Guard.run));self.assertNotIn('subprocess.Popen(',inspect.getsource(run_census));self.assertNotIn('proc.terminate(',inspect.getsource(run_census))
+ def test_environment_rejects_secrets_case_duplicates_and_nul(self):
+  from census_supervisor import production_environment
+  for env in [{'GITHUB_TOKEN':'synthetic'},{'PATH':'a','Path':'b'},{'PATH':'a'+chr(0)}]:
+   with self.assertRaises(AssertionError):production_environment(env)
+  self.assertTrue(production_environment({'PATH':'tools','LIB':'libs','PERL5LIB':'overlay'}).endswith(chr(0)*2))
+ def test_job_and_handle_list_at_creation_before_resume(self):
+  import inspect
+  from census_supervisor import WindowsProductionJobAPI,OwnedProcess
+  text=inspect.getsource(WindowsProductionJobAPI.create_in_job);self.assertIn('0x20002',text);self.assertIn('0x2000d',text);self.assertIn('0x4|0x400|0x08000000|0x80000',text)
+  text=inspect.getsource(OwnedProcess.start);self.assertLess(text.index('self.api.in_job'),text.index('self.api.resume'));self.assertNotIn('shell=True',text)
+ def test_member_overflow_and_duplicates_fail_closed(self):
+  import inspect
+  from census_supervisor import WindowsProductionJobAPI
+  text=inspect.getsource(WindowsProductionJobAPI.members);self.assertIn('row.assigned==row.listed',text);self.assertIn('len(set(pids))',text);self.assertIn('<=256',text)
+
 if __name__=='__main__':unittest.main()

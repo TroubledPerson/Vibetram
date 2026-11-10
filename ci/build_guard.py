@@ -1,6 +1,6 @@
 """Monitored hosted unsigned-trial helpers; no signing or credential access."""
 import pathlib,os,subprocess,time,shutil,json,re,hashlib,stat,sys,uuid
-from census_supervisor import Sampler,run_census,CensusFailure,stop_compiler_tree
+from census_supervisor import Sampler,run_census,CensusFailure,OwnedProcess
 from reparse_metadata import capture as capture_reparse_metadata,EXPECTED_ALIAS,EXPECTED_TARGET
 from scratch_snapshot import ScratchTracker,IncompleteScratchSnapshot,eligible as eligible_scratch,MAX_ATTEMPTS,MAX_INTERRUPTS
 from alias_accounting import ALIAS_METADATA_BYTES,AliasAppeared,exact_alias,safe_absence,disjoint_roots,lease_key,compare_baseline
@@ -320,7 +320,7 @@ class Guard:
   try:
    with stdout.open('xb') as a,stderr.open('xb') as b:
     self._log_paths=[stdout,stderr];self._sampler.tick()
-    proc=subprocess.Popen([str(x) for x in args],cwd=cwd or self.root,env=env or self.env,stdout=a,stderr=b)
+    proc=OwnedProcess();proc.start([str(x) for x in args],cwd or self.root,env or self.env,stdout=a,stderr=b)
     next_census=time.monotonic()
     while True:
      assert timeout is None or time.monotonic()-started<=timeout,'COMMAND_DEADLINE'
@@ -332,15 +332,24 @@ class Guard:
      if time.monotonic()-last>=30:
       print(f'TRIAL_PROGRESS stage={index} elapsed={int(elapsed)} retainedBytes={used} freeBytes={shutil.disk_usage(self.root).free}',flush=True);last=time.monotonic()
      time.sleep(.25)
-   code=proc.returncode;self._command_deadline=None;self.check(stdout.stat().st_size+stderr.stat().st_size)
+   code=proc.returncode;self._command_deadline=None;proc.finish(sampler=self._sampler);assert not proc.cleanup_errors,'OWNED_PROCESS_SUPERVISION_FAILED';proc.close();self.check(stdout.stat().st_size+stderr.stat().st_size)
    assert code==0,'SUBPROCESS_FAILED'
    result=subprocess.CompletedProcess(args,code,stdout.read_text(encoding='utf-8',errors='replace') if capture else None,stderr.read_text(encoding='utf-8',errors='replace') if capture else None)
-   self.commands.append({'stage':index,'tool':label,'exit':code,'seconds':round(time.monotonic()-started,3)})
+   self.commands.append({'stage':index,'tool':label,'exit':code,'seconds':round(time.monotonic()-started,3),'ownedJobTeardown':proc.teardown})
    (self.work/'trial-progress.json').write_text(json.dumps(self.report(),indent=2),encoding='utf-8')
    return result
   except BaseException as error:
    self._command_deadline=None
-   teardown=stop_compiler_tree(proc,self._sampler,os.environ['SystemRoot'])
+   teardown=[]
+   if proc is not None:
+    try:proc.finish(terminate=True,sampler=self._sampler)
+    except BaseException as cleanup:teardown.append(type(cleanup).__name__)
+   proof=proc.teardown if proc is not None else None
+   if proof is None:proof=getattr(error,'owned_teardown',{'treeState':'NO_PROCESS_STARTED' if proc is None else 'UNKNOWN_OWNED_JOB_STATE','processTreeExitIndependentlyVerified':False})
+   if proc is not None:
+    teardown.extend(proc.cleanup_errors)
+    try:proc.close()
+    except BaseException as cleanup:teardown.append(type(cleanup).__name__)
    if not teardown and self.pending_reparse and self.reparse_result is None:
     root,relative=self.pending_reparse
     self.reparse_result=capture_reparse_metadata(root,relative)
@@ -352,10 +361,11 @@ class Guard:
    for name,path in [('stdoutTail',stdout),('stderrTail',stderr)]:
     if path.exists():
      with path.open('rb') as f:f.seek(max(0,path.stat().st_size-16000));tails[name]=redact(f.read().decode('utf-8',errors='replace'))
-   report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,'teardownFailures':teardown,'teardownDiagnostic':getattr(proc,'_vibetram_teardown_diagnostic',{'treeState':'NO_PROCESS_STARTED' if proc is None else 'UNKNOWN_DESCENDANT_STATE','processTreeExitIndependentlyVerified':False}),'knownParentExitObserved':proc is None or proc.poll() is not None,'knownParentExitCode':None if proc is None else proc.poll(),'processTreeExitIndependentlyVerified':False,'category':str(error)[:200],**tails}
+   report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,'teardownFailures':teardown,'teardownDiagnostic':proof,'knownParentExitObserved':proc is None or proc.poll() is not None,'knownParentExitCode':None if proc is None else proc.poll(),'processTreeExitIndependentlyVerified':proof['processTreeExitIndependentlyVerified'],'censusWorkerTeardown':getattr(error,'census_teardown',None),'category':str(error)[:200],**tails}
    (self.work/'failure-summary.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
    print(json.dumps(report,indent=2),flush=True)
    raise
   finally:
+   if proc is not None:proc.close()
    if self._sampler:self.supervision_samples+=self._sampler.count;self.supervision_max_gap=max(self.supervision_max_gap,self._sampler.max_gap)
    self._sampler=None;self._command_deadline=None

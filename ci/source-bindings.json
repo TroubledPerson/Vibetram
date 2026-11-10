@@ -161,11 +161,11 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "296524a6cd44d3efaa1af996e5b0141785808f645d94f5d7ae4e8bdd15ccb140"
+    "sha256": "617341b807216883dc21e5be62090dff5ebc079fb54d711d9e32eeba4f1ab73a"
   },
   {
     "path": "ci/census_supervisor.py",
-    "sha256": "07ed5def6ec5ca5b9170e5e3c62886355a2943b287ccf2cd69a7c8ada43d3be6"
+    "sha256": "bd746a26dbdbb39f250ac2722bc898488cb68954c1d1124843d036ce89a09b29"
   },
   {
     "path": "ci/census_worker.py",
@@ -205,7 +205,7 @@
   },
   {
     "path": "ci/owned_job_probe.py",
-    "sha256": "7aeb40af1be964a5b2034f39570d24b421a38942d8251d4e122fb883525191c8"
+    "sha256": "d12c00acf8b6a36fefaeb2e48f8abc4b1dbf3d1708e05e03361e8ebb407497d1"
   },
   {
     "path": "ci/perl_overlay.py",
@@ -253,7 +253,7 @@
   },
   {
     "path": "ci/test_census_supervision.py",
-    "sha256": "1c6292f136214bac9d6afc7087f3143e26cbb4ee6e247218fc2d0e81f0772d86"
+    "sha256": "1120e120b1078cc3603931459f8f8a24f485dc8a1cc7e4b032d6233869c68e08"
   },
   {
     "path": "ci/test_fixture_privacy.py",

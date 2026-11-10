@@ -1,6 +1,6 @@
 """Explicit hosted Python-only Job Object qualification; never production/compiler control."""
 import pathlib,sys,os,time,json,uuid,hashlib,shutil,re,stat
-from census_supervisor import WindowsOwnedJobAPI,OwnedJobPrototype
+from census_supervisor import WindowsOwnedJobAPI,OwnedJobPrototype,OwnedProcess,WindowsProductionJobAPI,Sampler,run_census,CensusFailure
 FIXTURE=r"""import sys,os,time,json,pathlib,subprocess,ctypes
 from ctypes import wintypes as w
 k=ctypes.WinDLL('kernel32',use_last_error=True)
@@ -118,15 +118,73 @@ def lifecycle_case(api,base,mode,nested,start):
   if job:job.close()
   if outer is not None:api.close(outer)
 
+
+def production_cases(base,start):
+ """Exercise the production startup/log/pipes/teardown path, never a compiler."""
+ cases=[]
+ for mode in ('wait','early'):
+  root=base/('production-'+mode);root.mkdir();(root/'tmp').mkdir();(root/'owned_job_fixture.py').write_text(FIXTURE,encoding='ascii');job=OwnedProcess();nonce=uuid.uuid4().hex
+  try:
+   with (root/'stdout.log').open('xb') as out,(root/'stderr.log').open('xb') as err:
+    job.start([sys.executable,'-B',str(root/'owned_job_fixture.py'),mode,nonce,str(root)],root,test_environment(root),stdout=out,stderr=err)
+    end=time.monotonic()+8
+    while not (root/'leaf.json.done').exists() or not (root/'ready.json.done').exists():resource_check(base,start);assert time.monotonic()<end,'PRODUCTION_READY_DEADLINE';time.sleep(.02)
+    ready=json.loads((root/'ready.json').read_text());leaf=json.loads((root/'leaf.json').read_text());assert ready['nonce']==leaf['nonce']==nonce and ready['child']==leaf['identity'],'PRODUCTION_CHILD_BINDING'
+    assert ready['parent']=={k:job.initial[k] for k in ('pid','creationFiletime')},'PRODUCTION_PARENT_BINDING'
+    if mode=='early':
+     while job.poll() is None:assert time.monotonic()<end,'PRODUCTION_PARENT_EXIT_DEADLINE';resource_check(base,start);time.sleep(.01)
+     try:job.finish()
+     except RuntimeError as error:assert str(error)=='OWNED_PROCESS_DESCENDANTS_AFTER_PARENT','PRODUCTION_UNEXPECTED_FAILURE'
+     else:raise AssertionError('PRODUCTION_DESCENDANTS_NOT_REJECTED')
+    else:job.finish(True,Sampler(lambda:resource_check(base,start)))
+    assert job.teardown['activeMembers']==0 and job.teardown['knownHandlesExited'] and job.teardown['processTreeExitIndependentlyVerified'],'PRODUCTION_TEARDOWN_UNVERIFIED'
+    cases.append({'state':'PASS_PRODUCTION_'+mode.upper(),'proof':job.teardown})
+  finally:job.close()
+ # Exercise the exact census worker pipe wrapper and its deadline cleanup.
+ root=base/'production-census';root.mkdir();(root/'tmp').mkdir();spec={'root':str(root),'work':str(root)};request={'nonce':uuid.uuid4().hex,'generation':1,'specHash':'a'*64,'spec':spec}
+ for mode in ('concurrent','hang'):
+  sampler=Sampler(lambda:resource_check(base,start));peaks=[]
+  try:result=run_census([sys.executable,'-B',str(pathlib.Path(__file__).with_name('test_census_process_fixture.py')),mode],request,sampler,peaks.append,seconds=.3 if mode=='hang' else 3)
+  except CensusFailure as error:
+   assert mode=='hang' and str(error)=='CENSUS_TOTAL_DEADLINE' and not getattr(error,'cleanup_failures',[]),'PRODUCTION_CENSUS_UNEXPECTED_FAILURE'
+   assert error.census_teardown['processTreeExitIndependentlyVerified'],'PRODUCTION_CENSUS_TREE_UNVERIFIED';cases.append({'state':'PASS_PRODUCTION_CENSUS_TIMEOUT','proof':error.census_teardown,'samples':sampler.count})
+  else:assert mode=='concurrent' and result['synthetic'] and sampler.count>=4 and max(peaks)==12,'PRODUCTION_CENSUS_PIPE';cases.append({'state':'PASS_PRODUCTION_CENSUS_PIPE','samples':sampler.count})
+ # Failure after atomic assignment but before execution must leave no child.
+ root=base/'production-resume-failure';root.mkdir();(root/'tmp').mkdir();api=WindowsProductionJobAPI();duplicate=None
+ class ResumeFailure:
+  def __getattr__(self,name):return getattr(api,name)
+  def create_in_job(self,*args):
+   nonlocal duplicate
+   process,thread=api.create_in_job(*args)
+   try:duplicate=duplicate_owned_handle(api,process);return process,thread
+   except BaseException:
+    try:api.terminate(args[0])
+    finally:api.close(thread);api.close(process)
+    raise
+  def resume(self,*args):raise RuntimeError('INJECTED_PRODUCTION_RESUME_FAILURE')
+ job=OwnedProcess(ResumeFailure())
+ try:
+  with (root/'stdout.log').open('xb') as out,(root/'stderr.log').open('xb') as err:
+   try:job.start([sys.executable,'-B','-c','raise SystemExit(99)'],root,test_environment(root),stdout=out,stderr=err)
+   except RuntimeError as error:assert str(error)=='INJECTED_PRODUCTION_RESUME_FAILURE' and not getattr(error,'owned_cleanup_failure',None) and not getattr(error,'owned_close_failure',None),'PRODUCTION_RESUME_FAILURE_CLEANUP'
+   else:raise AssertionError('PRODUCTION_FAILURE_NOT_INJECTED')
+  observed=api.snapshot(duplicate);assert observed['exited'] and observed['exitCode']!=99 and job.teardown['processTreeExitIndependentlyVerified'],'PRODUCTION_RESUME_CODE_RAN_OR_UNKNOWN'
+  cases.append({'state':'PASS_PRODUCTION_RESUME_FAILURE','injectedNotOSDenial':True,'fixtureCodeRan':False,'proof':job.teardown})
+ finally:
+  job.close()
+  if duplicate is not None:api.close(duplicate)
+ return cases
+
 def qualify(base,commit):
  assert base.is_absolute() and not base.exists(),'JOB_PROBE_EXCLUSIVE_OUTPUT'
  for p in [base.parent,*base.parent.parents]:assert not p.lstat().st_file_attributes&0x400,'JOB_PROBE_PARENT_LINK'
  assert shutil.disk_usage(base.parent).free>=MIN_FREE+MAX_OUTPUT,'JOB_PROBE_INITIAL_RESERVE'
- base.mkdir();start=time.monotonic();report={'state':'STARTED','commit':commit,'prototypeSourceSHA256':hashlib.sha256(pathlib.Path(__file__).with_name('census_supervisor.py').read_bytes()).hexdigest(),'pythonVersion':sys.version.split()[0],'cases':[],'compilerExecuted':False,'productionRunnerReplaced':False,'credentialsUsed':False,'networkRequested':False,'outputLimitBytes':MAX_OUTPUT,'freeFloorBytes':MIN_FREE,'totalDeadlineSeconds':MAX_SECONDS,'sampledNotQuota':True}
+ base.mkdir();start=time.monotonic();report={'state':'STARTED','commit':commit,'prototypeSourceSHA256':hashlib.sha256(pathlib.Path(__file__).with_name('census_supervisor.py').read_bytes()).hexdigest(),'pythonVersion':sys.version.split()[0],'cases':[],'compilerExecuted':False,'productionRunnerReplaced':True,'credentialsUsed':False,'networkRequested':False,'outputLimitBytes':MAX_OUTPUT,'freeFloorBytes':MIN_FREE,'totalDeadlineSeconds':MAX_SECONDS,'sampledNotQuota':True}
  try:
   api=WindowsOwnedJobAPI()
   for mode,nested in [('wait',False),('early',True)]:report['currentCase']=mode;report['cases'].append(lifecycle_case(api,base,mode,nested,start));resource_check(base,start)
   for phase in ['assign','resume']:report['currentCase']='injected-'+phase;report['cases'].append(failure_case(api,base,phase));resource_check(base,start)
+  report['cases'].extend(production_cases(base,start));resource_check(base,start)
   report['state']='PASS_HOSTED_ISOLATED_OWNED_JOB_ONLY'
  except BaseException as error:
   code=str(error);report.update(state='STOPPED_UNQUALIFIED',errorClass=type(error).__name__,failureCode=code if re.fullmatch('[A-Z0-9_]{1,100}',code) else 'WITHHELD_NONCODE_FAILURE',osError=getattr(error,'winerror',getattr(error,'errno',None)))

@@ -90,7 +90,7 @@ def run_census(argv,request,sampler,on_progress,seconds=CENSUS_SECONDS):
   sampler.tick()
   env={k:os.environ[k] for k in ('SystemRoot','WINDIR','PATH','PATHEXT') if k in os.environ}
   temp=str(pathlib.Path(request['spec']['work'])/'tmp');env.update(TEMP=temp,TMP=temp,PYTHONNOUSERSITE='1',PYTHONDONTWRITEBYTECODE='1')
-  proc=subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env=env)
+  proc=OwnedProcess();proc.start(argv,pathlib.Path(request['spec']['root']),env,pipes=True)
   threads=[threading.Thread(target=reader,daemon=True),threading.Thread(target=writer,daemon=True)]
   for t in threads:t.start()
   while True:
@@ -119,21 +119,24 @@ def run_census(argv,request,sampler,on_progress,seconds=CENSUS_SECONDS):
  except BaseException as error:primary=error;raise
  finally:
   end=time.monotonic()+TEARDOWN_SECONDS
-  if proc is not None and proc.poll() is None:
-   try:proc.terminate()
-   except OSError as error:cleanup.append(type(error).__name__)
-  while proc is not None and proc.poll() is None and time.monotonic()<end:
-   try:sampler.tick()
-   except BaseException as error:cleanup.append(type(error).__name__)
-   time.sleep(.025)
+  if proc is not None:
+   try:proof=proc.finish(terminate=primary is not None,sampler=sampler)
+   except BaseException as error:cleanup.append(type(error).__name__);proof=getattr(error,'owned_teardown',None)
+   if primary is not None:primary.census_teardown=proof
   while any(t.is_alive() for t in threads) and time.monotonic()<end:
    try:sampler.tick()
    except BaseException as error:cleanup.append(type(error).__name__)
    for t in threads:t.join(.01)
-  if proc is not None and not any(t.is_alive() for t in threads):
-   try:proc.stdout.close()
-   except OSError as error:cleanup.append(type(error).__name__)
-  if proc is not None and (proc.poll() is None or any(t.is_alive() for t in threads)):cleanup.append('UNCONFIRMED_CENSUS_TEARDOWN')
+  if any(t.is_alive() for t in threads):cleanup.append('UNCONFIRMED_CENSUS_READERS')
+  elif proc is not None:
+   for stream in (proc.stdin,proc.stdout):
+    if stream is not None:
+     try:stream.close()
+     except OSError as error:cleanup.append(type(error).__name__)
+  if proc is not None:
+   cleanup.extend(proc.cleanup_errors)
+   try:proc.close()
+   except BaseException as error:cleanup.append(type(error).__name__)
   if cleanup:
    if primary is not None:primary.cleanup_failures=cleanup
    else:raise CensusFailure('CENSUS_TEARDOWN_FAILED')
@@ -169,7 +172,7 @@ def owned_job_test_environment(env):
  assert all(isinstance(v,str) and chr(0) not in v for v in env.values()),'OWNED_JOB_ENV_NUL'
  return chr(0).join(k+'='+v for k,v in sorted(env.items(),key=lambda x:x[0].upper()))+chr(0)*2
 
-# ISOLATED QUALIFICATION PROTOTYPE ONLY: Guard.run/stop_compiler_tree do not use it.
+# Shared native primitives; fixture-only prototype remains separate from production startup.
 class WindowsOwnedJobAPI:
  def __init__(self):
   assert os.name=='nt','WINDOWS_JOB_PROTOTYPE_ONLY'
@@ -283,3 +286,153 @@ class OwnedJobPrototype:
    try:self.api.close(h)
    except BaseException as error:failures.append(type(error).__name__)
   if failures:raise RuntimeError('OWNED_JOB_CLEANUP_UNCERTAIN:'+','.join(failures))
+
+
+# Production startup uses the documented Windows JOB_LIST + HANDLE_LIST attributes.
+# The child belongs to our kill-on-close job at creation and remains suspended
+# until held identity/membership checks pass. No breakaway or PID-only fallback.
+# Job membership queries are live, bounded observations, not a historic census of
+# already-exited children. Zero active members after stop proves none survive.
+def production_environment(env):
+ assert isinstance(env,dict) and 0<len(env)<=96,'OWNED_PROCESS_ENV_BOUND'
+ names=set()
+ for k,v in env.items():
+  assert isinstance(k,str) and re.fullmatch('[A-Za-z_][A-Za-z0-9_()]*',k) and isinstance(v,str) and chr(0) not in v,'OWNED_PROCESS_ENV_FORMAT'
+  name=k.upper();assert name not in names,'OWNED_PROCESS_ENV_DUPLICATE';names.add(name)
+  assert not re.search('TOKEN|PASSWORD|SECRET|CREDENTIAL|ASKPASS|COOKIE|AUTHORIZATION',name) and not name.startswith(('AWS_','AZURE_','ACTIONS_','GITHUB_')),'OWNED_PROCESS_CREDENTIAL_ENV'
+ block=chr(0).join(k+'='+v for k,v in sorted(env.items(),key=lambda x:x[0].upper()))+chr(0)*2
+ assert len(block)<=65536,'OWNED_PROCESS_ENV_SIZE'
+ return block
+
+class WindowsProductionJobAPI(WindowsOwnedJobAPI):
+ def __init__(self):
+  super().__init__();c=self.c;w=self.w
+  class ExtendedStartup(c.Structure):_fields_=[('startup',self.Startup),('attributes',c.c_void_p)]
+  class ProductionMembers(c.Structure):_fields_=[('assigned',w.DWORD),('listed',w.DWORD),('pids',c.c_size_t*256)]
+  self.ExtendedStartup=ExtendedStartup;self.Members=ProductionMembers
+  signatures={'GetCurrentProcess':([],w.HANDLE),'DuplicateHandle':([w.HANDLE,w.HANDLE,w.HANDLE,c.POINTER(w.HANDLE),w.DWORD,w.BOOL,w.DWORD],w.BOOL),'InitializeProcThreadAttributeList':([c.c_void_p,w.DWORD,w.DWORD,c.POINTER(c.c_size_t)],w.BOOL),'UpdateProcThreadAttribute':([c.c_void_p,w.DWORD,c.c_size_t,c.c_void_p,c.c_size_t,c.c_void_p,c.c_void_p],w.BOOL),'DeleteProcThreadAttributeList':([c.c_void_p],None),'CreatePipe':([c.POINTER(w.HANDLE),c.POINTER(w.HANDLE),c.c_void_p,w.DWORD],w.BOOL)}
+  for n,(args,result) in signatures.items():f=getattr(self.k,n);f.argtypes=args;f.restype=result
+ def duplicate(self,h,inheritable):
+  out=self.w.HANDLE();current=self.k.GetCurrentProcess();self.ok(self.k.DuplicateHandle(current,h,current,self.c.byref(out),0,inheritable,2));return out.value
+ def pipe(self):
+  r=self.w.HANDLE();w=self.w.HANDLE();self.ok(self.k.CreatePipe(self.c.byref(r),self.c.byref(w),None,0));return r.value,w.value
+ def members(self,job):
+  row=self.Members();self.ok(self.k.QueryInformationJobObject(job,3,self.c.byref(row),self.c.sizeof(row),None))
+  assert row.assigned==row.listed and row.listed<=256,'OWNED_JOB_MEMBER_BOUND'
+  pids=list(row.pids[:row.listed]);assert len(set(pids))==len(pids),'OWNED_JOB_DUPLICATE_MEMBER';return pids
+ def active_count(self,job):
+  class Accounting(self.c.Structure):_fields_=[(n,self.c.c_longlong) for n in ('user','kernel','periodUser','periodKernel')]+[(n,self.w.DWORD) for n in ('faults','total','active','terminated')]
+  row=Accounting();self.ok(self.k.QueryInformationJobObject(job,1,self.c.byref(row),self.c.sizeof(row),None));assert row.active<=256,'OWNED_JOB_ACTIVE_BOUND';return row.active
+ def create_in_job(self,job,argv,cwd,env,stdio):
+  assert len(stdio)==3 and len(set(stdio))==3,'OWNED_PROCESS_STDIO_HANDLES'
+  c=self.c;size=c.c_size_t();self.k.InitializeProcThreadAttributeList(None,2,0,c.byref(size))
+  assert c.get_last_error()==122 and 0<size.value<=65536,'OWNED_PROCESS_ATTRIBUTE_SIZE'
+  storage=c.create_string_buffer(size.value);attributes=c.cast(storage,c.c_void_p);initialized=False
+  try:
+   self.ok(self.k.InitializeProcThreadAttributeList(attributes,2,0,c.byref(size)));initialized=True
+   handles=(self.w.HANDLE*3)(*stdio);jobs=(self.w.HANDLE*1)(job)
+   self.ok(self.k.UpdateProcThreadAttribute(attributes,0,0x20002,c.cast(handles,c.c_void_p),c.sizeof(handles),None,None))
+   self.ok(self.k.UpdateProcThreadAttribute(attributes,0,0x2000d,c.cast(jobs,c.c_void_p),c.sizeof(jobs),None,None))
+   si=self.ExtendedStartup();si.startup.cb=c.sizeof(si);si.startup.flags=0x100;si.startup.stdin,si.startup.stdout,si.startup.stderr=stdio;si.attributes=attributes
+   pi=self.Process();block=c.create_unicode_buffer(production_environment(env));command=c.create_unicode_buffer(subprocess.list2cmdline([str(x) for x in argv]))
+   self.ok(self.k.CreateProcessW(str(argv[0]),command,None,None,True,0x4|0x400|0x08000000|0x80000,block,str(cwd),c.cast(c.byref(si),c.POINTER(self.Startup)),c.byref(pi)))
+   return pi.process,pi.thread
+  finally:
+   if initialized:self.k.DeleteProcThreadAttributeList(attributes)
+
+class OwnedProcess(OwnedJobPrototype):
+ """Production command/census process. All descendants remain in an owned job.
+ Complete means zero kernel-reported members and exit of all held identities.
+ A denial is terminal: no retry through taskkill or another process mechanism.
+ """
+ def __init__(self,api=None):
+  super().__init__(api or WindowsProductionJobAPI());self.returncode=None;self.stdin=None;self.stdout=None;self.teardown=None;self.cleanup_errors=[]
+ def start(self,argv,cwd,env,stdout=None,stderr=None,pipes=False):
+  import msvcrt
+  assert self.process is None and isinstance(argv,(list,tuple)) and argv and pathlib.Path(argv[0]).is_absolute() and pathlib.Path(cwd).is_absolute(),'OWNED_PROCESS_START_SCOPE'
+  assert all(isinstance(x,(str,pathlib.Path)) and chr(0) not in str(x) for x in argv),'OWNED_PROCESS_ARGV'
+  production_environment(env);owned=[];child=[];streams=[]
+  def duplicate(h):
+   value=self.api.duplicate(h,True);child.append(value);return value
+  def wrap(h,mode):
+   fd=msvcrt.open_osfhandle(h,os.O_BINARY|os.O_NOINHERIT|(os.O_RDONLY if mode=='rb' else os.O_WRONLY));owned.remove(h)
+   try:return os.fdopen(fd,mode)
+   except BaseException:os.close(fd);raise
+  try:
+   if pipes:
+    read,write=self.api.pipe();owned.extend((read,write));si=duplicate(read);self.stdin=wrap(write,'wb');streams.append(self.stdin)
+    read,write=self.api.pipe();owned.extend((read,write));so=duplicate(write);self.stdout=wrap(read,'rb');streams.append(self.stdout)
+    null=open(os.devnull,'wb');streams.append(null);se=duplicate(msvcrt.get_osfhandle(null.fileno()))
+   else:
+    assert stdout is not None and stderr is not None,'OWNED_PROCESS_LOGS_REQUIRED'
+    null=open(os.devnull,'rb');streams.append(null);si=duplicate(msvcrt.get_osfhandle(null.fileno()));so=duplicate(msvcrt.get_osfhandle(stdout.fileno()));se=duplicate(msvcrt.get_osfhandle(stderr.fileno()))
+   self.process,self.thread=self.api.create_in_job(self.job,argv,cwd,env,(si,so,se));self.assigned=True;self.initial=self.api.snapshot(self.process);self.pid=self.initial['pid'];self.events.extend(['CREATED_SUSPENDED_IN_OWNED_JOB','JOB_LIST_NO_BREAKAWAY'])
+   assert self.api.in_job(self.process,self.job),'OWNED_PROCESS_ASSIGNMENT_NOT_OBSERVED'
+   self.api.resume(self.thread);self.events.append('RESUMED_AFTER_ASSIGNMENT')
+  except BaseException as error:
+   try:self.finish(terminate=True)
+   except BaseException as cleanup:error.owned_cleanup_failure=type(cleanup).__name__
+   try:self.close()
+   except BaseException as cleanup:error.owned_close_failure=type(cleanup).__name__
+   for stream in streams:
+    if not stream.closed:stream.close()
+   raise
+  finally:
+   for h in child+owned:
+    try:self.api.close(h)
+    except BaseException as error:self.cleanup_errors.append(type(error).__name__)
+   for stream in streams:
+    if stream not in (self.stdin,self.stdout) and not stream.closed:stream.close()
+  assert not self.cleanup_errors,'OWNED_PROCESS_START_HANDLE_CLEANUP'
+  return self
+ def poll(self):
+  if self.process is None or self.closed:return self.returncode
+  row=self.api.snapshot(self.process);assert (row['pid'],row['creationFiletime'])==(self.initial['pid'],self.initial['creationFiletime']),'OWNED_PROCESS_PARENT_IDENTITY'
+  self.returncode=row['exitCode'] if row['exited'] else None;return self.returncode
+ def finish(self,terminate=False,sampler=None,seconds=TEARDOWN_SECONDS):
+  assert 0<seconds<=TEARDOWN_SECONDS and not self.closed,'OWNED_PROCESS_FINISH_SCOPE'
+  if self.teardown is not None:return self.teardown
+  if self.stop_attempted:raise RuntimeError('OWNED_PROCESS_PREVIOUS_TEARDOWN_UNVERIFIED')
+  self.stop_attempted=True;start=time.monotonic();before=[];terminated=False
+  try:
+   if self.process is not None:before=self.observe()
+   if terminate:self.api.terminate(self.job);terminated=True
+   while True:
+    if sampler:
+     try:sampler.tick()
+     except BaseException as error:
+      # Supervision failure cannot prevent owned-job termination. It is retained
+      # separately, so cleanup proof never grants a resource-safety pass.
+      self.cleanup_errors.append(type(error).__name__)
+    rows=self.observe() if self.process is not None else [];active=self.api.active_count(self.job)
+    pairs=([(self.process,self.initial)] if self.process is not None else [])+list(self.members_held.values());held=[]
+    for h,identity in pairs:
+     now=self.api.snapshot(h);assert (now['pid'],now['creationFiletime'])==(identity['pid'],identity['creationFiletime']),'OWNED_PROCESS_STOP_IDENTITY';held.append(now)
+    elapsed=time.monotonic()-start
+    if not rows and active==0 and all(x['exited'] for x in held) and elapsed<=seconds:
+     self.poll();self.teardown={'treeState':'VERIFIED_OWNED_JOB_ZERO_MEMBERS','processTreeExitIndependentlyVerified':True,'completeActiveMemberAccounting':True,'activeMembers':0,'knownHandlesExited':True,'heldIdentityCount':len(held),'heldIdentities':held,'observedBefore':before,'directJobTermination':terminated,'seconds':elapsed,'deadlineSeconds':seconds,'events':list(self.events),'supervisionFailures':list(self.cleanup_errors)};return self.teardown
+    if elapsed>=seconds:raise TimeoutError('OWNED_PROCESS_TEARDOWN_DEADLINE')
+    if not terminate:raise RuntimeError('OWNED_PROCESS_DESCENDANTS_AFTER_PARENT')
+    time.sleep(.01)
+  except BaseException as error:
+   # If a normal-exit check discovers children, perform one direct owned-job
+   # termination while preserving the command failure. No observation retry
+   # after denial/identity failure; kill-on-close remains exceptional cleanup.
+   if not terminate and isinstance(error,RuntimeError) and str(error)=='OWNED_PROCESS_DESCENDANTS_AFTER_PARENT':
+    self.stop_attempted=False
+    try:self.finish(True,sampler,seconds)
+    except BaseException as cleanup:error.owned_cleanup_failure=type(cleanup).__name__
+   error.owned_teardown=self.teardown or {'treeState':'UNKNOWN_OWNED_JOB_STATE','processTreeExitIndependentlyVerified':False,'errorClass':type(error).__name__,'osError':getattr(error,'winerror',getattr(error,'errno',None))}
+   raise
+ def close(self):
+  if self.closed:return
+  failures=[]
+  if not self.stop_attempted:
+   try:self.finish(True)
+   except BaseException as error:failures.append(type(error).__name__)
+  self.closed=True
+  for h in [self.thread]+[h for h,_ in self.members_held.values()]+[self.process,self.job]:
+   if h is not None:
+    try:self.api.close(h)
+    except BaseException as error:failures.append(type(error).__name__)
+  if failures:raise RuntimeError('OWNED_PROCESS_CLOSE_UNCERTAIN:'+','.join(failures))
