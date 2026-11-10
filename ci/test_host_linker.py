@@ -71,10 +71,10 @@ class Tests(unittest.TestCase):
  def fake_proc(self):
   class Query:
    def __call__(self,handle,flags,buf,n):buf.value='C:/owned/'+('cargo.exe' if handle==1 else 'helper.exe');return True
-  rows={1:{'pid':10,'creationFiletime':100,'exited':True},2:{'pid':20,'creationFiletime':200,'exited':True}}
-  api=types.SimpleNamespace(w=w,k=types.SimpleNamespace(QueryFullProcessImageNameW=Query()),snapshot=lambda handle:dict(rows[handle]),ok=lambda x:None)
-  return types.SimpleNamespace(process=1,initial=rows[1],members_held={20:(2,None)},api=api,observe=lambda:[])
- def test_failure_captures_held_exited_descendants(self):
+  rows={1:{'pid':10,'creationFiletime':100,'exited':False},2:{'pid':20,'creationFiletime':200,'exited':False}}
+  api=types.SimpleNamespace(w=w,k=types.SimpleNamespace(QueryFullProcessImageNameW=Query()),snapshot=lambda handle:dict(rows[handle]),ok=lambda x:None,in_job=lambda *a:True)
+  return types.SimpleNamespace(process=1,initial=rows[1],job=123,closed=False,image_evidence={},members_held={20:(2,None)},api=api,observe=lambda:[])
+ def test_failure_captures_live_owned_members(self):
   fake=types.ModuleType('build_guard');fake.executable_snapshot=lambda *a,**kw:{'identity':[1,2],'sha256':'0'*64,'bytes':64}
   with patch.dict(sys.modules,{'build_guard':fake}):rows=h.failure_members(self.fake_proc(),{})
   self.assertEqual({r['pid'] for r in rows},{10,20});self.assertTrue(all(r['heldIdentityVerified'] for r in rows));self.assertTrue(all(r['qualifiedForNormalCompletion'] is False for r in rows))
@@ -83,6 +83,6 @@ class Tests(unittest.TestCase):
   def denied(*a,**kw):raise PermissionError('synthetic denial')
   fake.executable_snapshot=denied
   with patch.dict(sys.modules,{'build_guard':fake}):rows=h.failure_members(self.fake_proc(),{})
-  self.assertEqual(rows[1]['imageBaseName'],'helper.exe');self.assertEqual(rows[1]['creationFiletime'],200);self.assertEqual(rows[1]['metadataFailureClass'],'PermissionError');self.assertFalse(rows[1]['qualifiedForNormalCompletion'])
+  self.assertEqual(rows[1]['metadataFailureAPIStage'],'IMAGE_FILE_SNAPSHOT');self.assertEqual(rows[1]['creationFiletime'],200);self.assertEqual(rows[1]['metadataFailureClass'],'PermissionError');self.assertFalse(rows[1]['qualifiedForNormalCompletion'])
 if __name__=='__main__':
  root=pathlib.Path(__file__).parent;SOURCES={p:(root/pathlib.PurePosixPath(p).name).read_text() for p in ('ci/msvc_env.py','ci/build_guard.py','ci/perl_overlay.py')};unittest.main()

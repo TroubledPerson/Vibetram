@@ -68,13 +68,15 @@ def failure_members(proc,env,sampler=None):
   for r in observed:
    item={'pid':r['pid'],'creationFiletime':r['creationFiletime'],'qualifiedForNormalCompletion':False}
    try:
-    handle=proc.process if r['pid']==proc.initial['pid'] else proc.members_held[r['pid']][0];before=proc.api.snapshot(handle);n=proc.api.w.DWORD(32768);buf=ctypes.create_unicode_buffer(n.value);api=proc.api
-    api.k.QueryFullProcessImageNameW.argtypes=[api.w.HANDLE,api.w.DWORD,api.w.LPWSTR,ctypes.POINTER(api.w.DWORD)];api.k.QueryFullProcessImageNameW.restype=api.w.BOOL;api.ok(api.k.QueryFullProcessImageNameW(handle,0,buf,ctypes.byref(n)))
-    path=pathlib.Path(buf.value);item.update(imageBaseName=path.name,rawPathWithheld=True,heldIdentityVerifiedBeforeHash=(before['pid'],before['creationFiletime'])==(r['pid'],r['creationFiletime']));pin=binding(env) if KEY in env else None;meta=executable_snapshot(path,sampler.tick if sampler else None,large_lld_binding=pin if pin and str(path)==pin['path'] else None);after=api.snapshot(handle)
-    assert (before['pid'],before['creationFiletime'])==(after['pid'],after['creationFiletime'])==(r['pid'],r['creationFiletime']),'OWNED_FAILURE_HELD_IDENTITY_CHANGED'
-    item.update(imageBaseName=path.name,imageSHA256=meta['sha256'],imageBytes=meta['bytes'],imageIdentity=meta['identity'],heldIdentityVerified=True,provenance='OFFICIAL_PINNED_RUST_LLD' if pin and str(path)==pin['path'] else 'RECORDED_HASH_NOT_A_COMPLETION_EXEMPTION',rawPathWithheld=True)
-   except BaseException as e:item.update(metadataFailureClass=type(e).__name__,metadataFailureWinerror=getattr(e,'winerror',None),metadataFailureCategory=str(e)[:120] if isinstance(e,AssertionError) else 'IMAGE_METADATA_READ_FAILED')
+    handle=proc.process if r['pid']==proc.initial['pid'] else proc.members_held[r['pid']][0]
+    from process_image import retained
+    item.update(retained(proc,handle,r,env,sampler.tick if sampler else None))
+   except BaseException as e:
+    from process_image import error_info
+    detail=error_info(e);item.update(metadataFailureClass=detail['exceptionClass'],metadataFailureWinerror=detail['winerror'],metadataFailureErrno=detail['errno'],metadataFailureRawWinerror=detail['rawWinerror'],metadataFailureAPIStage=detail['apiStage'])
    rows.append(item)
- except BaseException as e:rows.append({'enumerationFailureClass':type(e).__name__,'qualifiedForNormalCompletion':False})
+ except BaseException as e:
+  from process_image import error_info
+  rows.append({'enumerationFailureClass':type(e).__name__,'qualifiedForNormalCompletion':False,'metadataError':error_info(e)})
  assert len(json.dumps(rows).encode())<=65536,'OWNED_FAILURE_METADATA_BOUND'
  return rows

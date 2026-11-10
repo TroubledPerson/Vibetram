@@ -398,7 +398,8 @@ class Guard:
     from host_linker import verify_runtime
     verify_runtime(env or self.env,self._sampler.tick)
     launch_args,executable_binding=qualified_executable([str(x) for x in args],env or self.env,self._sampler.tick)
-    self._sampler.tick();proc=OwnedProcess();proc.start(launch_args,cwd or self.root,env or self.env,stdout=a,stderr=b)
+    from process_image import remember
+    self._sampler.tick();proc=OwnedProcess();proc.start(launch_args,cwd or self.root,env or self.env,stdout=a,stderr=b,image_capture=lambda p,h,row:remember(p,h,row,env or self.env,self._sampler.tick,launch_args[0] if row['pid']==p.initial['pid'] else None))
     next_census=time.monotonic()
     while True:
      assert timeout is None or time.monotonic()-started<=timeout,'COMMAND_DEADLINE'
@@ -427,6 +428,8 @@ class Guard:
    return result
   except BaseException as error:
    primary_error=error;self._command_deadline=None
+   from process_image import error_info
+   primary_api=error_info(error)
    from failure_lifecycle import freeze_failure
    from host_linker import failure_members
    facts=freeze_failure(proc,lambda p:failure_members(p,env or self.env,self._sampler),self._sampler,code,preclose_images);close_attempted=proc is not None
@@ -447,7 +450,7 @@ class Guard:
       with path.open('rb') as f:f.seek(max(0,path.stat().st_size-16000));tails[name]=redact(f.read().decode('utf-8',errors='replace'))
     except BaseException as diagnostic:diagnostics.append({'stage':name,'failureClass':type(diagnostic).__name__})
    try:
-    report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,**facts,'diagnosticFailures':diagnostics,'processTreeExitIndependentlyVerified':proof.get('processTreeExitIndependentlyVerified',False),'censusWorkerTeardown':getattr(error,'census_teardown',None),'category':str(error)[:200],**tails}
+    report={**self.report(),'state':'FAILED_PARTIALS_PRESERVED','failedStage':index,'tool':label,'exit':code,**facts,'diagnosticFailures':diagnostics,'primaryAPIFailure':primary_api,'processTreeExitIndependentlyVerified':proof.get('processTreeExitIndependentlyVerified',False),'censusWorkerTeardown':getattr(error,'census_teardown',None),'category':str(error)[:200],**tails}
     (self.work/'failure-summary.json').write_text(json.dumps(report,indent=2),encoding='utf-8');print(json.dumps(report,indent=2),flush=True)
    except BaseException as diagnostic:
     error.add_note('FAILURE_REPORT_FAILED:'+type(diagnostic).__name__)

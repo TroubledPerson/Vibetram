@@ -189,8 +189,9 @@ class WindowsOwnedJobAPI:
   self.Extended=Extended;self.Startup=Startup;self.Process=Process;self.Members=Members;self.FT=FT
   signatures={'CreateJobObjectW':([ctypes.c_void_p,w.LPCWSTR],w.HANDLE),'SetInformationJobObject':([w.HANDLE,ctypes.c_int,ctypes.c_void_p,w.DWORD],w.BOOL),'QueryInformationJobObject':([w.HANDLE,ctypes.c_int,ctypes.c_void_p,w.DWORD,ctypes.POINTER(w.DWORD)],w.BOOL),'AssignProcessToJobObject':([w.HANDLE,w.HANDLE],w.BOOL),'IsProcessInJob':([w.HANDLE,w.HANDLE,ctypes.POINTER(w.BOOL)],w.BOOL),'TerminateJobObject':([w.HANDLE,w.UINT],w.BOOL),'CreateProcessW':([w.LPCWSTR,w.LPWSTR,ctypes.c_void_p,ctypes.c_void_p,w.BOOL,w.DWORD,ctypes.c_void_p,w.LPCWSTR,ctypes.POINTER(Startup),ctypes.POINTER(Process)],w.BOOL),'ResumeThread':([w.HANDLE],w.DWORD),'TerminateProcess':([w.HANDLE,w.UINT],w.BOOL),'WaitForSingleObject':([w.HANDLE,w.DWORD],w.DWORD),'CloseHandle':([w.HANDLE],w.BOOL),'OpenProcess':([w.DWORD,w.BOOL,w.DWORD],w.HANDLE),'GetProcessId':([w.HANDLE],w.DWORD),'GetExitCodeProcess':([w.HANDLE,ctypes.POINTER(w.DWORD)],w.BOOL),'GetProcessTimes':([w.HANDLE,*([ctypes.POINTER(FT)]*4)],w.BOOL)}
   for name,(args,result) in signatures.items():f=getattr(self.k,name);f.argtypes=args;f.restype=result
- def ok(self,value):
-  if not value:raise OSError(self.c.get_last_error(),'OWNED_JOB_API_FAILURE')
+ def ok(self,value,stage='OWNED_JOB_API'):
+  if not value:
+   code=self.c.get_last_error();error=OSError(code,'OWNED_JOB_API_FAILURE');error.api_stage=stage;error.raw_winerror=code;raise error
   return value
  def create_job(self):
   h=self.ok(self.k.CreateJobObjectW(None,None))
@@ -220,8 +221,8 @@ class WindowsOwnedJobAPI:
   class Accounting(self.c.Structure):_fields_=[(n,self.c.c_longlong) for n in ('user','kernel','periodUser','periodKernel')]+[(n,self.w.DWORD) for n in ('faults','total','active','terminated')]
   row=Accounting();self.ok(self.k.QueryInformationJobObject(job,1,self.c.byref(row),self.c.sizeof(row),None));assert row.active<=16,'OWNED_JOB_ACTIVE_BOUND';return row.active
  def snapshot(self,process):
-  values=[self.FT() for _ in range(4)];self.ok(self.k.GetProcessTimes(process,*[self.c.byref(x) for x in values]));pid=self.ok(self.k.GetProcessId(process));wait=self.k.WaitForSingleObject(process,0);assert wait in (0,258),'OWNED_JOB_PROCESS_WAIT'
-  code=self.w.DWORD();self.ok(self.k.GetExitCodeProcess(process,self.c.byref(code)))
+  values=[self.FT() for _ in range(4)];self.ok(self.k.GetProcessTimes(process,*[self.c.byref(x) for x in values]),'GetProcessTimes');pid=self.ok(self.k.GetProcessId(process),'GetProcessId');wait=self.k.WaitForSingleObject(process,0);assert wait in (0,258),'OWNED_JOB_PROCESS_WAIT'
+  code=self.w.DWORD();self.ok(self.k.GetExitCodeProcess(process,self.c.byref(code)),'GetExitCodeProcess')
   return {'pid':pid,'creationFiletime':(values[0].high<<32)|values[0].low,'exited':wait==0,'exitCode':code.value if wait==0 else None}
  def open_member(self,job,pid):
   h=self.ok(self.k.OpenProcess(0x100000|0x1000,False,pid))
@@ -257,6 +258,7 @@ class OwnedJobPrototype:
    elif pid in self.members_held:h,before=self.members_held[pid]
    else:
     h=self.api.open_member(self.job,pid);before=self.api.snapshot(h);assert before['pid']==pid,'OWNED_JOB_PID_MISMATCH';self.members_held[pid]=(h,before)
+    if getattr(self,'image_capture',None) and not before['exited']:self.image_evidence[(pid,before['creationFiletime'])]=self.image_capture(self,h,before)
    now=self.api.snapshot(h);assert (now['pid'],now['creationFiletime'])==(before['pid'],before['creationFiletime']),'OWNED_JOB_IDENTITY_CHANGED';rows.append(now)
   return rows
  def stop(self,seconds=3):
@@ -346,12 +348,12 @@ class OwnedProcess(OwnedJobPrototype):
  A denial is terminal: no retry through taskkill or another process mechanism.
  """
  def __init__(self,api=None):
-  super().__init__(api or WindowsProductionJobAPI());self.returncode=None;self.stdin=None;self.stdout=None;self.teardown=None;self.cleanup_errors=[]
- def start(self,argv,cwd,env,stdout=None,stderr=None,pipes=False):
+  super().__init__(api or WindowsProductionJobAPI());self.returncode=None;self.stdin=None;self.stdout=None;self.teardown=None;self.cleanup_errors=[];self.image_capture=None;self.image_evidence={};self.image_failures={}
+ def start(self,argv,cwd,env,stdout=None,stderr=None,pipes=False,image_capture=None):
   import msvcrt
   assert self.process is None and isinstance(argv,(list,tuple)) and argv and pathlib.Path(argv[0]).is_absolute() and pathlib.Path(cwd).is_absolute(),'OWNED_PROCESS_START_SCOPE'
   assert all(isinstance(x,(str,pathlib.Path)) and chr(0) not in str(x) for x in argv),'OWNED_PROCESS_ARGV'
-  production_environment(env);owned=[];child=[];streams=[]
+  self.image_capture=image_capture;production_environment(env);owned=[];child=[];streams=[]
   def duplicate(h):
    value=self.api.duplicate(h,True);child.append(value);return value
   def wrap(h,mode):
@@ -368,6 +370,7 @@ class OwnedProcess(OwnedJobPrototype):
     null=open(os.devnull,'rb');streams.append(null);si=duplicate(msvcrt.get_osfhandle(null.fileno()));so=duplicate(msvcrt.get_osfhandle(stdout.fileno()));se=duplicate(msvcrt.get_osfhandle(stderr.fileno()))
    self.process,self.thread=self.api.create_in_job(self.job,argv,cwd,env,(si,so,se));self.assigned=True;self.initial=self.api.snapshot(self.process);self.pid=self.initial['pid'];self.events.extend(['CREATED_SUSPENDED_IN_OWNED_JOB','JOB_LIST_NO_BREAKAWAY'])
    assert self.api.in_job(self.process,self.job),'OWNED_PROCESS_ASSIGNMENT_NOT_OBSERVED'
+   if self.image_capture:self.image_evidence[(self.initial['pid'],self.initial['creationFiletime'])]=self.image_capture(self,self.process,self.initial)
    self.api.resume(self.thread);self.events.append('RESUMED_AFTER_ASSIGNMENT')
   except BaseException as error:
    try:self.finish(terminate=True)

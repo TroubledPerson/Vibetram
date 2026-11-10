@@ -116,10 +116,11 @@
         {
           "run": "python -B ci/test_archive_lifecycle.py"
         }
-      ]
+      ],
+      "if": "(true) && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')"
     },
     "unsigned-qualification": {
-      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[unsigned-trial-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "if": "(github.event_name == 'push' && contains(github.event.head_commit.message, '[unsigned-trial-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')",
       "needs": [
         "source-checks",
         "lock-diagnostic"
@@ -185,7 +186,7 @@
       ]
     },
     "runner-preflight": {
-      "if": "github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "if": "(github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')",
       "needs": "source-checks",
       "runs-on": "windows-latest",
       "timeout-minutes": 15,
@@ -234,7 +235,7 @@
       ]
     },
     "lock-diagnostic": {
-      "if": "github.event_name == 'push' && (contains(github.event.head_commit.message, '[lock-diagnostic-191]') || contains(github.event.head_commit.message, '[unsigned-trial-191]')) && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "if": "(github.event_name == 'push' && (contains(github.event.head_commit.message, '[lock-diagnostic-191]') || contains(github.event.head_commit.message, '[unsigned-trial-191]')) && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')",
       "needs": "source-checks",
       "runs-on": "windows-latest",
       "timeout-minutes": 25,
@@ -275,7 +276,7 @@
       ]
     },
     "msvc-probe": {
-      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[msvc-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "if": "(github.event_name == 'push' && contains(github.event.head_commit.message, '[msvc-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')",
       "needs": "source-checks",
       "runs-on": "windows-latest",
       "timeout-minutes": 20,
@@ -323,7 +324,7 @@
       ]
     },
     "openssl-probe": {
-      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[openssl-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "if": "(github.event_name == 'push' && contains(github.event.head_commit.message, '[openssl-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')",
       "needs": [
         "source-checks"
       ],
@@ -357,7 +358,7 @@
       ]
     },
     "ndk-metadata": {
-      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[ndk-metadata-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "if": "(github.event_name == 'push' && contains(github.event.head_commit.message, '[ndk-metadata-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')",
       "needs": [
         "source-checks"
       ],
@@ -381,7 +382,7 @@
       ]
     },
     "perl-runtime": {
-      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[perl-runtime-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "if": "(github.event_name == 'push' && contains(github.event.head_commit.message, '[perl-runtime-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')",
       "needs": "source-checks",
       "runs-on": "windows-latest",
       "timeout-minutes": 10,
@@ -403,7 +404,7 @@
       ]
     },
     "overlay-probe": {
-      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[overlay-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "if": "(github.event_name == 'push' && contains(github.event.head_commit.message, '[overlay-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')",
       "needs": "source-checks",
       "runs-on": "windows-latest",
       "timeout-minutes": 20,
@@ -444,7 +445,7 @@
       ]
     },
     "owned-job-probe": {
-      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[owned-job-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "if": "(github.event_name == 'push' && contains(github.event.head_commit.message, '[owned-job-probe-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram')",
       "needs": "source-checks",
       "runs-on": "windows-latest",
       "timeout-minutes": 4,
@@ -472,6 +473,37 @@
             "if-no-files-found": "warn",
             "retention-days": 3
           }
+        }
+      ]
+    },
+    "metadata-image-qualification": {
+      "if": "github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-image-only-191]') && github.ref == 'refs/heads/main' && github.repository == 'TroubledPerson/Vibetram'",
+      "runs-on": "windows-latest",
+      "timeout-minutes": 10,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "run": "python -B ci/check_source.py"
+        },
+        {
+          "run": "python -B ci/test_metadata_workflow.py"
+        },
+        {
+          "run": "python -B ci/test_process_image.py"
+        },
+        {
+          "run": "python -B ci/test_host_linker.py"
+        },
+        {
+          "run": "python -B ci/test_census_supervision.py"
         }
       ]
     }
