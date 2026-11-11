@@ -385,4 +385,41 @@ class SmokeArtifactIdentity(unittest.TestCase):
   p=Mock();p.lstat.side_effect=OSError(5,"synthetic")
   with self.assertRaises(OSError):smoke_artifact_identity(p)
 
+
+class CargoPerlPathContract(unittest.TestCase):
+ def env(self):return {'VIBETRAM_OPENSSL_CARGO_BRIDGE':'1','PERL5LIB':'/d/job space/ci-work/runtime-overlay/lib:/d/job space/ci-work/perl-overlay/lib','PATH':'host-unchanged'}
+ def test_exact_exclusion_copy_and_spaces_preserved(self):
+  from perl_overlay import preserve_cargo_perl_paths as f
+  e=self.env();r=f(e);self.assertEqual(r['MSYS2_ENV_CONV_EXCL'],'PERL5LIB=');self.assertEqual(r['PERL5LIB'],e['PERL5LIB']);self.assertEqual(r['PATH'],e['PATH']);self.assertNotIn('MSYS2_ENV_CONV_EXCL',e)
+ def test_drive_colon_backslash_and_semicolon_lists_rejected(self):
+  from perl_overlay import preserve_cargo_perl_paths as f
+  for value in ('D:/job/runtime-overlay/lib;D:/job/perl-overlay/lib',r'D:\job\runtime-overlay\lib;D:\job\perl-overlay\lib','/d/job/runtime-overlay/lib;/d/job/perl-overlay/lib'):
+   with self.subTest(value=value),self.assertRaises(AssertionError):f({**self.env(),'PERL5LIB':value})
+ def test_missing_extra_empty_and_swapped_entries_rejected(self):
+  from perl_overlay import preserve_cargo_perl_paths as f
+  entries=self.env()['PERL5LIB'].split(':')
+  for value in ('',entries[0],':'.join(entries+entries[:1]),':'.join(reversed(entries)),':'.join([entries[0],''])):
+   with self.subTest(value=value),self.assertRaises(AssertionError):f({**self.env(),'PERL5LIB':value})
+ def test_traversal_other_root_and_unc_scope_rejected(self):
+  from perl_overlay import preserve_cargo_perl_paths as f
+  for value in (self.env()['PERL5LIB'].replace('/d/','//d/'),self.env()['PERL5LIB'].replace('job space','../job'),self.env()['PERL5LIB'].replace('/d/job space/ci-work/perl','/e/other/ci-work/perl')):
+   with self.subTest(value=value),self.assertRaises(AssertionError):f({**self.env(),'PERL5LIB':value})
+ def test_host_call_rejected_and_unrelated_environment_untouched(self):
+  from perl_overlay import preserve_cargo_perl_paths as f
+  with self.assertRaisesRegex(AssertionError,'BRIDGE_SCOPE'):f({'PERL5LIB':self.env()['PERL5LIB']})
+  e={**self.env(),'MSYS2_ARG_CONV_EXCL':'unchanged','HOST_CC':'host-cl'};r=f(e);self.assertEqual(r['MSYS2_ARG_CONV_EXCL'],'unchanged');self.assertEqual(r['HOST_CC'],'host-cl')
+ def test_wildcard_or_prefix_widening_not_accepted(self):
+  from perl_overlay import preserve_cargo_perl_paths as f
+  for value in ('*','PERL5LIB','PATH;PERL5LIB=','PERL5LIB_OTHER='):
+   with self.subTest(value=value),self.assertRaises(AssertionError):f({**self.env(),'MSYS2_ENV_CONV_EXCL':value})
+ def test_reentry_exact_exclusion_idempotent(self):
+  from perl_overlay import preserve_cargo_perl_paths as f
+  e=self.env();self.assertEqual(f(f(e)),f(e))
+ def test_actual_android_builder_propagates_child_only_exclusion(self):
+  from perl_overlay import preserve_cargo_perl_paths,build_android_environment
+  from ndk_linker import NDK
+  import pathlib
+  e=self.env();r=build_android_environment(preserve_cargo_perl_paths(e),NDK,NDK/'toolchains/llvm/prebuilt/windows-x86_64/bin',pathlib.Path('C:/Program Files/Git/usr/bin/perl.exe'))
+  self.assertEqual(r['MSYS2_ENV_CONV_EXCL'],'PERL5LIB=');self.assertEqual(r['PERL5LIB'],e['PERL5LIB']);self.assertNotIn('MSYS2_ENV_CONV_EXCL',e);self.assertTrue(r['CC_aarch64_linux_android'].endswith('clang.exe'))
+
 if __name__=="__main__":unittest.main()

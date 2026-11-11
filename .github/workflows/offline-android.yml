@@ -99,6 +99,9 @@
           "run": "python -B ci/test_perl_overlay.py"
         },
         {
+          "run": "python -B ci/test_perl_path_probe.py"
+        },
+        {
           "run": "python -B ci/test_runtime_report.py"
         },
         {
@@ -406,7 +409,7 @@
           }
         },
         {
-          "name": "Consolidated pinned Perl runtime and actual compiler-discovery helper checks; no Configure",
+          "name": "Pinned Perl runtime plus actual recursive native make/module-path checks; no Configure or compilation",
           "timeout-minutes": 7,
           "run": "python -B ci/perl_overlay.py --runtime-diagnosis"
         }

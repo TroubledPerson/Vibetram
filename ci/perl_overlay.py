@@ -409,8 +409,23 @@ sub import {
 1;
 '''
 
+def preserve_cargo_perl_paths(env):
+ assert env.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1","PERL_PATH_BRIDGE_SCOPE"
+ value=env.get("PERL5LIB");assert isinstance(value,str) and len(value)<=4096,"PERL_INCLUDE_LIST_BOUND"
+ entries=value.split(":");assert len(entries)==2,"PERL_INCLUDE_ENTRY_COUNT"
+ suffixes=("/runtime-overlay/lib","/perl-overlay/lib");roots=[]
+ for entry,suffix in zip(entries,suffixes):
+  assert re.fullmatch(r"/[A-Za-z0-9_ ./+-]+",entry) and entry.endswith(suffix),"PERL_INCLUDE_POSIX_SCOPE"
+  assert all(part not in ("",".","..") for part in entry.split("/")[1:]),"PERL_INCLUDE_TRAVERSAL"
+  roots.append(entry[:-len(suffix)])
+ assert roots[0] and roots[0]==roots[1],"PERL_INCLUDE_ROOT_MISMATCH"
+ assert env.get("MSYS2_ENV_CONV_EXCL","") in ("","PERL5LIB="),"UNREVIEWED_ENV_CONVERSION_EXCLUSION"
+ result=env.copy();result["MSYS2_ENV_CONV_EXCL"]="PERL5LIB="
+ return result
+
 def install_cargo_prefix_bridge(env,work,src):
  assert env.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1","BUILD_BRIDGE_MODE"
+ env=preserve_cargo_perl_paths(env)
  target=work/"runtime-overlay/lib/Vibetram/ConfigurePaths.pm";target.parent.mkdir()
  with target.open("x",encoding="ascii") as f:f.write(cargo_prefix_bridge_program())
  result=env.copy();result.update(PERL5OPT="-MVibetram::ConfigurePaths",VIBETRAM_OPENSSL_WORK=str(work),VIBETRAM_OPENSSL_CONFIGURE_SHA=hashlib.sha256((src/"Configure").read_bytes()).hexdigest())
@@ -504,6 +519,8 @@ def qualify_make_link(guard,env,work,out,src,perl,elf_validator):
   cross.update(qualify_ndk(cross,guard._resource_sample))
   from ndk_compilers import qualify as qualify_compilers
   cross.update(qualify_compilers(cross,guard._resource_sample))
+  from perl_path_probe import qualify as qualify_paths
+  results["nestedPerlPaths"]=qualify_paths(guard,env,work,out,perl,ndk)
   versions={name:guard.run([tool,"--version"],env=cross,capture=True,timeout=30).stdout.strip()[:2048] for name,tool in (("make",make),("shell",shell),("lld",lld))}
   check_ndk_version(versions["lld"])
   assert versions["make"].startswith("GNU Make ") and "GNU bash" in versions["shell"] and "LLD" in versions["lld"],"UNEXPECTED_BUILD_TOOL_VERSION"
@@ -720,7 +737,11 @@ def runtime_diagnosis(configure=False):
  env=probe_environment(work,cargo,rustup);guard=Guard(ROOT,work,out,env)
  guard.run([sys.executable,"-B",ROOT/"ci/openssl_probe.py","--materialize",work],env=env,timeout=180)
  src=work/"crate"/PREFIX/"openssl"
- qualify_prepared_runtime(guard,env,work,out,src,configure=configure)
+ selected,qualified_env,_=qualify_prepared_runtime(guard,env,work,out,src,configure=configure)
+ if not configure:
+  from perl_path_probe import qualify as qualify_paths
+  from openssl_probe import PHYSICAL_SDK
+  qualify_paths(guard,qualified_env,work,out,pathlib.Path(selected["path"]),PHYSICAL_SDK/"ndk/30.0.16248370")
 
 if __name__=="__main__":
  if len(sys.argv)==2 and sys.argv[1]=="--runtime-configure":runtime_diagnosis(configure=True)
