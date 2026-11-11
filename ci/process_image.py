@@ -19,7 +19,8 @@ def capture(proc,handle,identity,env,sample=None,expected=None):
  pin=binding(env) if KEY in env else None
  try:
   from ndk_linker import select
-  ndk_pin=select(env,path);file=executable_snapshot(path,sample,large_lld_binding=pin if pin and str(path)==pin['path'] else None,**({'large_ndk_binding':ndk_pin} if ndk_pin else {}))
+  from ndk_compilers import select as select_compiler
+  ndk_pin=select(env,path);compiler_pin=select_compiler(env,path);file=executable_snapshot(path,sample,large_lld_binding=pin if pin and str(path)==pin['path'] else None,**({'large_ndk_binding':ndk_pin} if ndk_pin else {}),**({'large_ndk_compiler_binding':compiler_pin} if compiler_pin else {}))
  except BaseException as e:e.api_stage='IMAGE_FILE_SNAPSHOT';raise
  after=snapshot(proc,handle,'IMAGE_SNAPSHOT_AFTER');assert key(after)==key(before),'IMAGE_HELD_IDENTITY_CHANGED'
  return {'processIdentity':key(before),'ownerJob':proc.job,'path':str(path),'file':file,'observedWhileAlive':True}
@@ -35,7 +36,8 @@ def retained(proc,handle,row,env,sample=None):
  before=snapshot(proc,handle,'CACHED_IMAGE_SNAPSHOT_BEFORE');assert key(before)==identity,'IMAGE_CACHE_HELD_IDENTITY_CHANGED';pin=binding(env) if KEY in env else None
  try:
   from ndk_linker import select
-  ndk_pin=select(env,pathlib.Path(saved['path']));now=executable_snapshot(pathlib.Path(saved['path']),sample,large_lld_binding=pin if pin and saved['path']==pin['path'] else None,**({'large_ndk_binding':ndk_pin} if ndk_pin else {}))
+  from ndk_compilers import select as select_compiler
+  ndk_pin=select(env,pathlib.Path(saved['path']));compiler_pin=select_compiler(env,pathlib.Path(saved['path']));now=executable_snapshot(pathlib.Path(saved['path']),sample,large_lld_binding=pin if pin and saved['path']==pin['path'] else None,**({'large_ndk_binding':ndk_pin} if ndk_pin else {}),**({'large_ndk_compiler_binding':compiler_pin} if compiler_pin else {}))
  except BaseException as e:e.api_stage='IMAGE_FILE_RECHECK';raise
  assert now==saved['file'],'CACHED_IMAGE_FILE_CHANGED';after=snapshot(proc,handle,'CACHED_IMAGE_SNAPSHOT_AFTER');assert key(after)==identity,'IMAGE_CACHE_HELD_IDENTITY_CHANGED'
  return {'pid':identity[0],'creationFiletime':identity[1],'imageBaseName':pathlib.Path(saved['path']).name,'imageSHA256':now['sha256'],'imageBytes':now['bytes'],'imageIdentity':now['identity'],'heldIdentityVerified':True,'imageObservedWhileAlive':True,'imageRecheckedBeforeClose':True,'rawPathWithheld':True,'qualifiedForNormalCompletion':False}

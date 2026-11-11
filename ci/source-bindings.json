@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "929a09d06d8c311a40583063d68be0282d29ed06cfe7ef459d0742ea1a67ffcb"
+    "sha256": "42af0d44f71d60b9c0e3591ae283aafabc99b8c867f7bd0f251c38bc447b0bf6"
   },
   {
     "path": ".gitignore",
@@ -165,7 +165,7 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "d142588470aed77a0b6b6ce7caf01c54b3704d7a0fb93f04cfa6a9b1470535b2"
+    "sha256": "3ea636f19ced6136e691d2ef4f2464ea2795b70523106564c83df274eab4f300"
   },
   {
     "path": "ci/census_supervisor.py",
@@ -181,7 +181,7 @@
   },
   {
     "path": "ci/cloud_build.py",
-    "sha256": "bc4daedb362e05ec35ebd59370eb25101998e6243f3cfcd652b7469e3a97ee1b"
+    "sha256": "85cd6ed6c3bf40e52ec63e1d5a2cf0e5a4d9e265c2cdb95fe21f9e562d0ab3b3"
   },
   {
     "path": "ci/failure_lifecycle.py",
@@ -212,6 +212,10 @@
     "sha256": "1f4c0a7b69fd137e0c2f021293f3008b49a6a11ede74f95d610d3cf518c9e656"
   },
   {
+    "path": "ci/ndk_compilers.py",
+    "sha256": "5ded8d1969a7161c760b602a7a856908ffe1d60a7b4fbc4adc1620980f89bd85"
+  },
+  {
     "path": "ci/ndk_input_metadata.py",
     "sha256": "369b3cdb01991c634b63e5b33ac6a11fc7542428ce2ee5d6ea3d48a2bd4671b5"
   },
@@ -229,7 +233,7 @@
   },
   {
     "path": "ci/perl_overlay.py",
-    "sha256": "ab2a8501a8ca7b68b5f0c8bda245ba9736e5a351309dccf7e78b573a286abfdd"
+    "sha256": "022ef0020f3489012b4d62ff42dfb09eeff3ab3bd750cef93f6db567547a2fc7"
   },
   {
     "path": "ci/perl_prerequisites.py",
@@ -237,7 +241,7 @@
   },
   {
     "path": "ci/process_image.py",
-    "sha256": "f47b0e820d77203727565f06e1566b262807e676927fd6c8cbc5ca31947e9fb6"
+    "sha256": "501fc577b2b617db4f750e1cff702f022d9eb8b073c1cc9afb011fbf93483b44"
   },
   {
     "path": "ci/provision_rust.py",
@@ -322,6 +326,10 @@
   {
     "path": "ci/test_msvc_pins.py",
     "sha256": "aa2a85b6999f9f9a97a00350f3deaea8c4da988fba98093b1ca5dbc38d8e58fd"
+  },
+  {
+    "path": "ci/test_ndk_compilers.py",
+    "sha256": "955fc6d344f2468c88c628a9faa083b9faf29f61a11d46d85b8380ed081f9e99"
   },
   {
     "path": "ci/test_ndk_input_metadata.py",

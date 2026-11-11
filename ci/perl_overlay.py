@@ -502,6 +502,8 @@ def qualify_make_link(guard,env,work,out,src,perl,elf_validator):
   linker=direct_msvc_linker(env);assert linker and pathlib.Path(shutil.which("link.exe",path=cross["PATH"]) or "")==pathlib.Path(linker),"HOST_LINKER_PATH_COLLISION"
   from ndk_linker import qualify as qualify_ndk,version as check_ndk_version
   cross.update(qualify_ndk(cross,guard._resource_sample))
+  from ndk_compilers import qualify as qualify_compilers
+  cross.update(qualify_compilers(cross,guard._resource_sample))
   versions={name:guard.run([tool,"--version"],env=cross,capture=True,timeout=30).stdout.strip()[:2048] for name,tool in (("make",make),("shell",shell),("lld",lld))}
   check_ndk_version(versions["lld"])
   assert versions["make"].startswith("GNU Make ") and "GNU bash" in versions["shell"] and "LLD" in versions["lld"],"UNEXPECTED_BUILD_TOOL_VERSION"

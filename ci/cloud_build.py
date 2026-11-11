@@ -71,8 +71,11 @@ def main(overlay_probe=False,configure_probe=False,make_probe=False):
   source_check(ROOT);return
  GUARD.env=ENV # Host builds retain their original qualified Microsoft environment.
  versions.update(perlRuntime={'state':runtime_report['state'],'requiredModules':runtime_report['requiredModuleCount'],'packages':[{'name':x['distribution'],'version':x['version'],'sha256':x['archiveSHA256']} for x in runtime_report['packages']]},makeLinkQualification=make_report)
- for name,args in [('rustc',['rustc','--version']),('ndkClang',[ndk/'clang.exe','--version']),('ndkArchiver',[ndk/'llvm-ar.exe','--version']),('javac',[java/'javac.exe','-version'])]:
-  version_result=run(args,env=ENV,cwd=ROOT/'codex-rs',capture=True);versions[name]=(version_result.stdout or version_result.stderr or '').strip()
+ from ndk_compilers import version_environment,check_version,qualify as qualify_compilers
+ for name,args in [('rustc',['rustc','--version']),('ndkClang',[ndk/'clang.exe','--version']),('ndkClangXX',[ndk/'clang++.exe','--version']),('ndkArchiver',[ndk/'llvm-ar.exe','--version']),('javac',[java/'javac.exe','-version'])]:
+  probe_env=version_environment(name,ENV,cross)
+  version_result=run(args,env=probe_env,cwd=ROOT/'codex-rs',capture=True);versions[name]=(version_result.stdout or version_result.stderr or '').strip()
+ for name in ('ndkClang','ndkClangXX'):check_version(versions[name])
  assert versions['rustc'].startswith('rustc 1.95.0 '),'WRONG_RUST_VERSION'
  lockfile=ROOT/'codex-rs/Cargo.lock';lock_hash=sha(lockfile);lock=tomllib.loads(lockfile.read_text(encoding='utf-8'))
  host=run(['cargo','test','--locked','--profile','ci-test','--lib','-p','codex-app-server-transport','--no-run','--message-format=json-render-diagnostics'],cwd=ROOT/'codex-rs',env=ENV,capture=True)
@@ -88,6 +91,7 @@ def main(overlay_probe=False,configure_probe=False,make_probe=False):
  cross=cargo_environment(build_android_environment(runtime_env,ndkroot,ndk,qualified_perl))
  from ndk_linker import qualify as qualify_ndk
  cross.update(qualify_ndk(cross,GUARD._resource_sample))
+ cross.update(qualify_compilers(cross,GUARD._resource_sample))
  built=run(['cargo','test','--locked','--profile','ci-test','--lib','-p','codex-app-server-transport','--target','aarch64-linux-android','--no-run','--message-format=json-render-diagnostics'],cwd=ROOT/'codex-rs',env=cross,capture=True)
  executable=artifact(built.stdout);assert executable.is_file()
  native=WORK/'libvibetramoffline.so';shutil.copyfile(executable,native);run([ndk/'llvm-strip.exe','--strip-unneeded',native]);elf_check(native.read_bytes())

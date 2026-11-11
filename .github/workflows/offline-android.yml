@@ -114,6 +114,9 @@
           "run": "python -B ci/test_ndk_linker.py"
         },
         {
+          "run": "python -B ci/test_ndk_compilers.py"
+        },
+        {
           "run": "python -B ci/test_tool_metadata_probe.py"
         },
         {
