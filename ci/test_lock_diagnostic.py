@@ -175,14 +175,17 @@ class ExpressionRegression(unittest.TestCase):
    with self.subTest(text=text),self.assertRaises((AssertionError,SyntaxError)):self.evaluate(text)
  def test_all_actual_job_gates_full_context_matrix(self):
   w=EntryGateConsistency.workflow(self);probe={"owned-job-probe":"owned-job-probe","overlay-probe":"overlay-probe","perl-runtime":"perl-runtime","ndk-metadata":"ndk-metadata","openssl-probe":"openssl-probe","msvc-probe":"msvc-probe"}
-  messages=["ordinary",None,"[unsigned-trial-191]","[lock-diagnostic-191]","[metadata-image-only-191]","[unsigned-trial-191] [metadata-image-only-191]","[lock-diagnostic-191] [metadata-image-only-191]"]+["["+m+"-191]" for m in probe.values()]
+  messages=["[tool-metadata-only-191]","[tool-metadata-only-191] [unsigned-trial-191]","[tool-metadata-only-191] [metadata-image-only-191]","[tool-metadata-only-191] [unsigned-trial-191] [metadata-image-only-191] [overlay-probe-191]","ordinary",None,"[unsigned-trial-191]","[lock-diagnostic-191]","[metadata-image-only-191]","[unsigned-trial-191] [metadata-image-only-191]","[lock-diagnostic-191] [metadata-image-only-191]"]+["["+m+"-191]" for m in probe.values()]
   for event in ("push","pull_request","workflow_dispatch"):
    for repo in ("TroubledPerson/Vibetram","other/Vibetram"):
     for ref in ("refs/heads/main","refs/heads/other"):
      for message in messages:
       trusted=repo=="TroubledPerson/Vibetram" and ref=="refs/heads/main";push=trusted and event=="push";has=lambda m:isinstance(message,str) and "["+m+"-191]" in message;metadata=push and has("metadata-image-only")
       expected={"source-checks":not metadata,"metadata-image-qualification":metadata,"unsigned-qualification":push and has("unsigned-trial") and not metadata,"lock-diagnostic":push and (has("unsigned-trial") or has("lock-diagnostic")) and not metadata,"runner-preflight":trusted and event!="pull_request" and not metadata,"release":False}
-      expected.update({n:push and has(m) and not metadata for n,m in probe.items()});self.assertEqual(set(w["jobs"]),set(expected))
+      expected.update({n:push and has(m) and not metadata for n,m in probe.items()})
+      tool_metadata=push and has("tool-metadata-only")
+      if tool_metadata:expected={name:False for name in expected}
+      expected["tool-metadata-qualification"]=tool_metadata;self.assertEqual(set(w["jobs"]),set(expected))
       for name,job in w["jobs"].items():
        expression=job["if"] if name!="release" else "false"
        with self.subTest(job=name,event=event,repo=repo,ref=ref,message=message):self.assertEqual(self.workflow_condition(expression,event,repo,ref,message),expected[name])

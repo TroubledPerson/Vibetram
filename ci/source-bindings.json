@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "94b90a48192b4003cf0db6378af57b6f0bcb9d964f3c5281d7decefde25260de"
+    "sha256": "929a09d06d8c311a40583063d68be0282d29ed06cfe7ef459d0742ea1a67ffcb"
   },
   {
     "path": ".gitignore",
@@ -305,7 +305,7 @@
   },
   {
     "path": "ci/test_lock_diagnostic.py",
-    "sha256": "6d83236c2c13bfb62c355073adb33afcc3ee4299839420d440b6bc0a7a7dc921"
+    "sha256": "04ddc5567bf158cd33c02681cbda824ae036abcf9159e06f34b253ebc955075b"
   },
   {
     "path": "ci/test_lock_repair.py",
@@ -313,7 +313,7 @@
   },
   {
     "path": "ci/test_metadata_workflow.py",
-    "sha256": "7f08e7158058b3521d2e78e2cb7d992e3fdd41db2911017b60525486bdae499d"
+    "sha256": "a0a33b4fa5a99aceafbf26ac3bc1466271682cc58619e794e5168b3aa1462a9d"
   },
   {
     "path": "ci/test_msvc_env.py",
@@ -382,6 +382,14 @@
   {
     "path": "ci/test_source_policy.py",
     "sha256": "d6659b0e676decee0f626e054fd49c640c1bb925cbf62f92ce76d0e0f5df7673"
+  },
+  {
+    "path": "ci/test_tool_metadata_probe.py",
+    "sha256": "284c5348004023b191eee259a7bf623b21a0c5ec97abf4d0d6a15bdc712d1d90"
+  },
+  {
+    "path": "ci/tool_metadata_probe.py",
+    "sha256": "b4ffa6731a74633cdff9850ed9a635139e8e17a15ac449691259a47aff3fde4b"
   },
   {
     "path": "codex-rs/.cargo/audit.toml",
