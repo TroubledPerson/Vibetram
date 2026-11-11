@@ -233,7 +233,7 @@
   },
   {
     "path": "ci/perl_overlay.py",
-    "sha256": "022ef0020f3489012b4d62ff42dfb09eeff3ab3bd750cef93f6db567547a2fc7"
+    "sha256": "f2ecd060017a80ac40d30267d41e0e06cb9ba774fee033589fb7640c30e8f534"
   },
   {
     "path": "ci/perl_prerequisites.py",
@@ -329,7 +329,7 @@
   },
   {
     "path": "ci/test_ndk_compilers.py",
-    "sha256": "955fc6d344f2468c88c628a9faa083b9faf29f61a11d46d85b8380ed081f9e99"
+    "sha256": "901b48f576fb0d889459e2b035fea9266f015f5fc2588811a330f145e260ec9a"
   },
   {
     "path": "ci/test_ndk_input_metadata.py",
@@ -353,7 +353,7 @@
   },
   {
     "path": "ci/test_perl_overlay.py",
-    "sha256": "e09269ae607df54c6812dff465ca8abe7fbf3625d187c2f41f9c501e4f4f4573"
+    "sha256": "1ed13fa66a84473af46c9039a0e18a0a06d084718dbeb427e7cd783f6cbc5570"
   },
   {
     "path": "ci/test_perl_prerequisites.py",

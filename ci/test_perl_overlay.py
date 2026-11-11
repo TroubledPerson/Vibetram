@@ -216,7 +216,7 @@ class CargoRuntimeIntegration(unittest.TestCase):
   link=pathlib.Path("C:/qualified-vs/bin/link.exe");perl=pathlib.Path("C:/Program Files/Git/usr/bin/perl.exe");ndk=PHYSICAL_SDK/"ndk/30.0.16248370";tools=ndk/"toolchains/llvm/prebuilt/windows-x86_64/bin"
   env={"PATH":"original","CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER":str(link),"VIBETRAM_OPENSSL_CARGO_BRIDGE":"1","PERL5OPT":"-MVibetram::ConfigurePaths","PERL5LIB":"/job/lib"}
   out=build_android_environment(env,ndk,tools,perl);parts=out["PATH"].split(os.pathsep)
-  self.assertLess(parts.index(str(link.parent)),parts.index(str(perl.parent)));self.assertEqual(parts[0],str(ndk/"prebuilt/windows-x86_64/bin"));self.assertEqual(out["CC_aarch64_linux_android"],"clang.exe");self.assertEqual(out["PERL"],"perl.exe");self.assertEqual(out["MAKEFLAGS"],"-j1");self.assertEqual(env["PATH"],"original");self.assertEqual(out["PERL5OPT"],env["PERL5OPT"])
+  self.assertLess(parts.index(str(link.parent)),parts.index(str(perl.parent)));self.assertEqual(parts[0],str(ndk/"prebuilt/windows-x86_64/bin"));self.assertEqual(out["CC_aarch64_linux_android"],str(tools/"clang.exe"));self.assertEqual(out["PERL"],"perl.exe");self.assertEqual(out["MAKEFLAGS"],"-j1");self.assertEqual(env["PATH"],"original");self.assertEqual(out["PERL5OPT"],env["PERL5OPT"])
  def test_tiny_recipe_actual_tabs_and_no_execution(self):
   from perl_overlay import tiny_makefile
   s=tiny_makefile("D:/a/Vibetram/Vibetram/ci-work/tool-smoke space")

@@ -420,7 +420,7 @@ def build_android_environment(env,ndk,tools,perl):
  cross=configure_environment(env,ndk,tools,perl)
  make_dir=ndk/"prebuilt/windows-x86_64/bin"
  cross["PATH"]=str(make_dir)+os.pathsep+cross["PATH"]
- cross.update(CC_aarch64_linux_android="clang.exe",CXX_aarch64_linux_android="clang++.exe",AR_aarch64_linux_android="llvm-ar.exe",RANLIB_aarch64_linux_android="llvm-ranlib.exe",SHELL=(perl.parent/"sh.exe").as_posix(),MAKEFLAGS="-j1")
+ cross.update(CC_aarch64_linux_android=str(tools/"clang.exe"),CXX_aarch64_linux_android=str(tools/"clang++.exe"),AR_aarch64_linux_android="llvm-ar.exe",RANLIB_aarch64_linux_android="llvm-ranlib.exe",SHELL=(perl.parent/"sh.exe").as_posix(),MAKEFLAGS="-j1")
  return cross
 
 def tiny_makefile(native):

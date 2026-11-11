@@ -133,5 +133,49 @@ class Compilers(unittest.TestCase):
     elif change=="closed":p.closed=True
     else:file["modifiedNs"]+=1
     with self.subTest(change=change),self.assertRaises(AssertionError):process_image.retained(p,1,dict(row),self.env())
+
+ def make_env(self):
+  from perl_overlay import build_android_environment
+  parent={"PATH":"C:/synthetic-host-tools","HOST_CC":"C:/synthetic-msvc/cl.exe"}
+  cross=build_android_environment(parent,c.ndk.NDK,c.PATHS["clang.exe"].parent,pathlib.Path("C:/Program Files/Git/usr/bin/perl.exe"))
+  return parent,cross
+ def test_actual_make_builder_satisfies_strict_target_roles(self):
+  parent,cross=self.make_env();c.environment(cross)
+  self.assertEqual(cross["CC"],"clang.exe");self.assertEqual(cross["AR"],"llvm-ar.exe")
+  self.assertEqual(cross["CXX_aarch64_linux_android"],str(c.PATHS["clang++.exe"]))
+  self.assertEqual(cross["CC_aarch64_linux_android"],str(c.PATHS["clang.exe"]))
+  self.assertEqual(cross["CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"],str(c.PATHS["clang.exe"]))
+  self.assertNotIn(c.KEY,cross);self.assertEqual(parent,{"PATH":"C:/synthetic-host-tools","HOST_CC":"C:/synthetic-msvc/cl.exe"})
+  self.assertEqual(cross["HOST_CC"],parent["HOST_CC"])
+ def test_actual_cargo_builder_remains_separate_and_absolute(self):
+  from build_guard import android_env
+  parent={"ANDROID_HOME":str(c.ndk.ROOT),"ANDROID_SDK_ROOT":str(c.ndk.ROOT),"PATH":"C:/host"}
+  cross=android_env(parent,c.ndk.NDK);c.environment(cross)
+  self.assertNotIn(c.KEY,parent);self.assertNotIn("CC",cross)
+  self.assertEqual(cross["CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"],str(c.PATHS["clang.exe"]))
+ def test_make_target_basename_quote_alias_or_swapped_role_still_denied(self):
+  _,cross=self.make_env()
+  for key in ("CC_aarch64_linux_android","CXX_aarch64_linux_android","CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"):
+   role="clang++.exe" if key.startswith("CXX") else "clang.exe"
+   for wrong in (role,'"'+str(c.PATHS[role])+'"',str(c.PATHS[role].with_name("clang-cl.exe")),str(c.PATHS["clang.exe" if role=="clang++.exe" else "clang++.exe"])):
+    with self.subTest(key=key,wrong=wrong),self.assertRaises(AssertionError):c.environment({**cross,key:wrong})
+ def test_actual_make_environment_qualifies_fresh_pins_then_stale_rejected(self):
+  import build_guard
+  _,cross=self.make_env();calls=[]
+  def snapshot(path,sample=None,large_ndk_compiler_binding=None):
+   pin=large_ndk_compiler_binding;c.schema(pin);calls.append(pin["role"])
+   return {"identity":[1,2],"bytes":c.SIZE,"modifiedNs":7,"sha256":c.HASHES[pin["role"]]}
+  with patch.object(pathlib.Path,"lstat",return_value=self.meta()),patch.object(c.ndk,"revision"),patch.object(build_guard,"executable_snapshot",side_effect=snapshot):
+   qualified={**cross,**c.qualify(cross)};self.assertEqual(calls,["clang.exe","clang++.exe"])
+   self.assertEqual(c.select(qualified,c.PATHS["clang.exe"])["sha256"],c.HASHES["clang.exe"])
+   with self.assertRaisesRegex(AssertionError,"REQUIRE_FRESH_ENV"):c.qualify(qualified)
+  with self.assertRaisesRegex(AssertionError,"STALE_IDENTITY"):c.pinned(c.PATHS["clang.exe"],self.meta([1,3]),self.pin())
+ def test_make_qualified_environment_never_enters_host_version_probe(self):
+  _,cross=self.make_env();cross[c.KEY]=json.dumps({r:self.pin(r) for r in c.HASHES})
+  with self.assertRaisesRegex(AssertionError,"ALLOWANCE_IN_HOST_ENV"):c.version_environment("rustc",cross,cross)
+  host={"PATH":"C:/host"}
+  with patch.object(c.ndk,"revision"):
+   self.assertIs(c.version_environment("ndkClang",host,cross),cross)
+   self.assertIs(c.version_environment("javac",host,cross),host)
 if __name__=="__main__":
  root=pathlib.Path(__file__).parent;GUARD_SOURCE=(root/"build_guard.py").read_text();PROCESS_SOURCE=(root/"process_image.py").read_text();PERL_SOURCE=(root/"perl_overlay.py").read_text();CLOUD_SOURCE=(root/"cloud_build.py").read_text();unittest.main()
