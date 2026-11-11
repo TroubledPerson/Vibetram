@@ -86,6 +86,8 @@ def main(overlay_probe=False,configure_probe=False,make_probe=False):
   count=test_count(result.stdout);assert count==len(expected),'COLLECTED_EXECUTED_TEST_COUNT_MISMATCH';suite.append({'filter':case,'passed':count})
  from archive_policy import cargo_environment
  cross=cargo_environment(build_android_environment(runtime_env,ndkroot,ndk,qualified_perl))
+ from ndk_linker import qualify as qualify_ndk
+ cross.update(qualify_ndk(cross,GUARD._resource_sample))
  built=run(['cargo','test','--locked','--profile','ci-test','--lib','-p','codex-app-server-transport','--target','aarch64-linux-android','--no-run','--message-format=json-render-diagnostics'],cwd=ROOT/'codex-rs',env=cross,capture=True)
  executable=artifact(built.stdout);assert executable.is_file()
  native=WORK/'libvibetramoffline.so';shutil.copyfile(executable,native);run([ndk/'llvm-strip.exe','--strip-unneeded',native]);elf_check(native.read_bytes())

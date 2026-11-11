@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "e3d55306129620dfed49538c55ec0425d1516950b8c619a509b40a10c94e67f6"
+    "sha256": "94b90a48192b4003cf0db6378af57b6f0bcb9d964f3c5281d7decefde25260de"
   },
   {
     "path": ".gitignore",
@@ -165,7 +165,7 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "d09368aa66ec54c42d768a528c3dc14cdc0c9602f4915e70dd526ebf63e110ef"
+    "sha256": "d142588470aed77a0b6b6ce7caf01c54b3704d7a0fb93f04cfa6a9b1470535b2"
   },
   {
     "path": "ci/census_supervisor.py",
@@ -181,7 +181,7 @@
   },
   {
     "path": "ci/cloud_build.py",
-    "sha256": "dde94d57d7e7baff54eea5abab29ed912b3601527597d0be9607076b59b26fbe"
+    "sha256": "bc4daedb362e05ec35ebd59370eb25101998e6243f3cfcd652b7469e3a97ee1b"
   },
   {
     "path": "ci/failure_lifecycle.py",
@@ -216,6 +216,10 @@
     "sha256": "369b3cdb01991c634b63e5b33ac6a11fc7542428ce2ee5d6ea3d48a2bd4671b5"
   },
   {
+    "path": "ci/ndk_linker.py",
+    "sha256": "c125835d17fcce603f3369a5ed41888f88ae13a634ea0006b87c8d529d43505f"
+  },
+  {
     "path": "ci/openssl_probe.py",
     "sha256": "4516d8c417071f337fc05828a6615da81abf928551373b76ba4a62b7f1c00628"
   },
@@ -225,7 +229,7 @@
   },
   {
     "path": "ci/perl_overlay.py",
-    "sha256": "f4d9c7525fff2a47d5cb179455ccf9065eda80f518de0f09cdd066adaf451369"
+    "sha256": "ab2a8501a8ca7b68b5f0c8bda245ba9736e5a351309dccf7e78b573a286abfdd"
   },
   {
     "path": "ci/perl_prerequisites.py",
@@ -233,7 +237,7 @@
   },
   {
     "path": "ci/process_image.py",
-    "sha256": "597ef0a1df2333d2dae0ee3befe0678b961834888863d32766c0d82da76f66f1"
+    "sha256": "f47b0e820d77203727565f06e1566b262807e676927fd6c8cbc5ca31947e9fb6"
   },
   {
     "path": "ci/provision_rust.py",
@@ -322,6 +326,10 @@
   {
     "path": "ci/test_ndk_input_metadata.py",
     "sha256": "974a2806ed4179878fce3cf6cdd59e207753bd8cfd674dfcb05ecc422de39533"
+  },
+  {
+    "path": "ci/test_ndk_linker.py",
+    "sha256": "5ecc263cb15d5c6c94090772046521a21a337e5ad4ff8fef95d8e87da26a48cf"
   },
   {
     "path": "ci/test_openssl_probe.py",

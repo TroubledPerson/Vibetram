@@ -48,7 +48,7 @@ def pinned_large_lld(path,before,binding,environment):
  assert binding['sha256']=='3cf499fc8a03853722d19e3ae1c5cdd143ac7426f1405b9e6efacd7a94b7328a','LARGE_LLD_OFFICIAL_HASH_PIN'
  return binding['sha256']
 
-def executable_snapshot(path,sample=None,*,large_lld_binding=None):
+def executable_snapshot(path,sample=None,*,large_lld_binding=None,large_ndk_binding=None):
  """Fresh no-follow identity, hash and regular ancestry for a selected input.
  This is a checked launch binding, not protection from every filesystem race.
  Existing pinned compiler-version checks remain mandatory after resolution.
@@ -60,7 +60,11 @@ def executable_snapshot(path,sample=None,*,large_lld_binding=None):
   chain.append((directory,(m.st_dev,m.st_ino,m.st_mode,getattr(m,'st_reparse_tag',0))))
  before=p.lstat();assert stat.S_ISREG(before.st_mode) and not getattr(before,'st_file_attributes',0)&0x400 and not getattr(before,'st_reparse_tag',0),'EXECUTABLE_LINK_OR_TYPE'
  pinned_digest=None
- if large_lld_binding is not None:pinned_digest=pinned_large_lld(p,before,large_lld_binding,os.environ)
+ if large_ndk_binding is not None:
+  assert large_lld_binding is None,'AMBIGUOUS_LARGE_EXECUTABLE_BINDING'
+  from ndk_linker import pinned
+  pinned_digest=pinned(p,before,large_ndk_binding)
+ elif large_lld_binding is not None:pinned_digest=pinned_large_lld(p,before,large_lld_binding,os.environ)
  else:assert 64<=before.st_size<=64*1024**2,'EXECUTABLE_SIZE_BOUND'
  with p.open('rb') as f:
   assert f.read(2)==b'MZ','EXECUTABLE_PE_HEADER';f.seek(0);digest=hashlib.sha256();last=time.monotonic()
@@ -70,7 +74,7 @@ def executable_snapshot(path,sample=None,*,large_lld_binding=None):
    if sample and time.monotonic()-last>=.1:sample();last=time.monotonic()
   digest=digest.hexdigest()
   if sample:sample()
- if pinned_digest is not None:assert digest==pinned_digest,'LARGE_LLD_ARCHIVE_HASH_MISMATCH'
+ if pinned_digest is not None:assert digest==pinned_digest,'LARGE_EXECUTABLE_PIN_HASH_MISMATCH' if large_ndk_binding is not None else 'LARGE_LLD_ARCHIVE_HASH_MISMATCH'
  after=p.lstat();key=lambda m:(m.st_dev,m.st_ino,m.st_size,m.st_mtime_ns,m.st_mode,getattr(m,'st_reparse_tag',0))
  assert key(before)==key(after),'EXECUTABLE_IDENTITY_CHANGED'
  for directory,identity in chain:

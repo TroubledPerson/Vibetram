@@ -500,7 +500,10 @@ def qualify_make_link(guard,env,work,out,src,perl,elf_validator):
   assert pathlib.Path(shutil.which("make.exe",path=cross["PATH"]) or "")==make,"WRONG_SELECTED_MAKE"
   from host_linker import direct_msvc_linker
   linker=direct_msvc_linker(env);assert linker and pathlib.Path(shutil.which("link.exe",path=cross["PATH"]) or "")==pathlib.Path(linker),"HOST_LINKER_PATH_COLLISION"
+  from ndk_linker import qualify as qualify_ndk,version as check_ndk_version
+  cross.update(qualify_ndk(cross,guard._resource_sample))
   versions={name:guard.run([tool,"--version"],env=cross,capture=True,timeout=30).stdout.strip()[:2048] for name,tool in (("make",make),("shell",shell),("lld",lld))}
+  check_ndk_version(versions["lld"])
   assert versions["make"].startswith("GNU Make ") and "GNU bash" in versions["shell"] and "LLD" in versions["lld"],"UNEXPECTED_BUILD_TOOL_VERSION"
   smoke=work/"tool-smoke space";smoke.mkdir();(smoke/"probe source.c").write_text("int vibetram_offline_link_probe(void) { return 7; }\n",encoding="ascii")
   source_hash=hashlib.sha256((smoke/"probe source.c").read_bytes()).hexdigest()

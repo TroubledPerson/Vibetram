@@ -17,7 +17,9 @@ def capture(proc,handle,identity,env,sample=None,expected=None):
  path=pathlib.Path(buf.value);assert path.is_absolute(),'IMAGE_ABSOLUTE_PATH'
  if expected is not None:assert os.path.normcase(str(path))==os.path.normcase(str(expected)),'IMAGE_ROOT_EXECUTABLE_BINDING'
  pin=binding(env) if KEY in env else None
- try:file=executable_snapshot(path,sample,large_lld_binding=pin if pin and str(path)==pin['path'] else None)
+ try:
+  from ndk_linker import select
+  ndk_pin=select(env,path);file=executable_snapshot(path,sample,large_lld_binding=pin if pin and str(path)==pin['path'] else None,**({'large_ndk_binding':ndk_pin} if ndk_pin else {}))
  except BaseException as e:e.api_stage='IMAGE_FILE_SNAPSHOT';raise
  after=snapshot(proc,handle,'IMAGE_SNAPSHOT_AFTER');assert key(after)==key(before),'IMAGE_HELD_IDENTITY_CHANGED'
  return {'processIdentity':key(before),'ownerJob':proc.job,'path':str(path),'file':file,'observedWhileAlive':True}
@@ -31,7 +33,9 @@ def retained(proc,handle,row,env,sample=None):
   saved=capture(proc,handle,row,env,sample);cache[identity]=saved;proc.image_evidence=cache
  assert saved['processIdentity']==identity and saved['ownerJob']==proc.job and saved['observedWhileAlive'] is True,'IMAGE_CACHE_IDENTITY_BINDING'
  before=snapshot(proc,handle,'CACHED_IMAGE_SNAPSHOT_BEFORE');assert key(before)==identity,'IMAGE_CACHE_HELD_IDENTITY_CHANGED';pin=binding(env) if KEY in env else None
- try:now=executable_snapshot(pathlib.Path(saved['path']),sample,large_lld_binding=pin if pin and saved['path']==pin['path'] else None)
+ try:
+  from ndk_linker import select
+  ndk_pin=select(env,pathlib.Path(saved['path']));now=executable_snapshot(pathlib.Path(saved['path']),sample,large_lld_binding=pin if pin and saved['path']==pin['path'] else None,**({'large_ndk_binding':ndk_pin} if ndk_pin else {}))
  except BaseException as e:e.api_stage='IMAGE_FILE_RECHECK';raise
  assert now==saved['file'],'CACHED_IMAGE_FILE_CHANGED';after=snapshot(proc,handle,'CACHED_IMAGE_SNAPSHOT_AFTER');assert key(after)==identity,'IMAGE_CACHE_HELD_IDENTITY_CHANGED'
  return {'pid':identity[0],'creationFiletime':identity[1],'imageBaseName':pathlib.Path(saved['path']).name,'imageSHA256':now['sha256'],'imageBytes':now['bytes'],'imageIdentity':now['identity'],'heldIdentityVerified':True,'imageObservedWhileAlive':True,'imageRecheckedBeforeClose':True,'rawPathWithheld':True,'qualifiedForNormalCompletion':False}
