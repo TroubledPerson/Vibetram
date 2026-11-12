@@ -405,7 +405,7 @@
   },
   {
     "path": "ci/test_tmp_file_snapshot.py",
-    "sha256": "7790a47a8ce2628fc649121dcfc28d1657528b2fd87219d0e405fefb28dcec7b"
+    "sha256": "358c3f4f3fd2bff60b4c7a5760ea9ec559d063c848daa98a084db777485ee3d4"
   },
   {
     "path": "ci/test_tool_metadata_probe.py",

@@ -1,10 +1,17 @@
-import unittest,pathlib,copy,types,time
+import unittest,pathlib,copy,types,time,math
 from unittest.mock import patch
 from tmp_file_snapshot import TmpFileProof
 from scratch_snapshot import identity
 from build_guard import Guard,OrdinaryScratchChurn
 from test_alias_accounting import guard
 from test_scratch_snapshot import FakeAPI,ROOT
+def fixture_deadline(clock=None):
+ current=(time.monotonic if clock is None else clock)()
+ assert type(current) in (int,float) and math.isfinite(current),"FIXTURE_CLOCK_INVALID"
+ deadline=math.nextafter(current+30.0,-math.inf)
+ assert current<deadline and 0<deadline-current<=30,"FIXTURE_DEADLINE_UNREPRESENTABLE"
+ return deadline
+
 P=ROOT/'tmp/assembly-123abc.s'
 def missing(path=P,code=2):
  e=FileNotFoundError(2,'synthetic',str(path));e.winerror=code;return e
@@ -26,7 +33,7 @@ class Files(FakeAPI):
   return super().info(h)
 class ProofCases(unittest.TestCase):
  def make(self,api=None,cancelled=lambda:False,clock=None):
-  a=api or Files();return a,TmpFileProof(ROOT,(clock() if clock else time.monotonic())+30,a,cancelled,clock or time.monotonic)
+  a=api or Files();return a,TmpFileProof(ROOT,fixture_deadline(clock or time.monotonic),a,cancelled,clock or time.monotonic)
  def test_verified_deletion_invalidates_never_zeroes(self):
   a,t=self.make()
   with t:
@@ -160,33 +167,33 @@ class EpochCases(unittest.TestCase):
  def test_full_snapshot_restarted_without_partial_total(self):
   g=self.g();failure=OrdinaryScratchChurn('tmp/a.s',4096)
   with patch.object(g,'_size_once',side_effect=[failure,123]) as call:
-   self.assertEqual(g.scan_epoch(time.monotonic()+30),123)
+   self.assertEqual(g.scan_epoch(fixture_deadline()),123)
   self.assertEqual(call.call_count,2);self.assertEqual(g.peak,10000);self.assertIsNone(g.last_completed_bytes);self.assertFalse(g.recent_churn[0]['completedTotalReported'])
  def test_repeated_churn_exhausts_original_two_attempts(self):
   g=self.g()
   with patch.object(g,'_size_once',side_effect=OrdinaryScratchChurn('tmp/a.s',4096)) as call:
-   with self.assertRaisesRegex(AssertionError,'TWO_ATTEMPTS_EXHAUSTED'):g.scan_epoch(time.monotonic()+30)
+   with self.assertRaisesRegex(AssertionError,'TWO_ATTEMPTS_EXHAUSTED'):g.scan_epoch(fixture_deadline())
   self.assertEqual(call.call_count,2);self.assertIsNone(g.last_completed_bytes)
  def test_denial_does_not_retry(self):
   g=self.g()
   with patch.object(g,'_size_once',side_effect=PermissionError(13,'synthetic')) as call:
-   with self.assertRaises(PermissionError):g.scan_epoch(time.monotonic()+30)
+   with self.assertRaises(PermissionError):g.scan_epoch(fixture_deadline())
   self.assertEqual(call.call_count,1);self.assertIsNone(g.last_completed_bytes)
  def test_cancellation_does_not_retry(self):
   g=self.g()
   with patch.object(g,'_size_once',side_effect=RuntimeError('TMP_PROOF_CANCELLED')) as call:
-   with self.assertRaisesRegex(RuntimeError,'CANCELLED'):g.scan_epoch(time.monotonic()+30)
+   with self.assertRaisesRegex(RuntimeError,'CANCELLED'):g.scan_epoch(fixture_deadline())
   self.assertEqual(call.call_count,1);self.assertIsNone(g.last_completed_bytes)
 
 class FinalBoundaryCases(unittest.TestCase):
  def test_growth_charged_before_discard(self):
-  a=Files();t=TmpFileProof(ROOT,time.monotonic()+30,a)
+  a=Files();t=TmpFileProof(ROOT,fixture_deadline(),a)
   with t:
    t.observe(P);a.pending=True;a.allocation=32768
    with self.assertRaises(OrdinaryScratchChurn) as caught:t.confirm(P,missing(),100)
    self.assertEqual(caught.exception.partial,32868)
  def test_identity_replaced_during_fresh_absence_check_fatal(self):
-  a=Files();t=TmpFileProof(ROOT,time.monotonic()+30,a)
+  a=Files();t=TmpFileProof(ROOT,fixture_deadline(),a)
   with t:
    t.observe(P);a.pending=True;old=a.open
    def changing(*args,**kw):
@@ -194,7 +201,7 @@ class FinalBoundaryCases(unittest.TestCase):
    with patch.object(a,'open',side_effect=changing):
     with self.assertRaisesRegex(AssertionError,'CONFIRMATION_IDENTITY_RACE'):t.confirm(P,missing(),0)
  def test_parent_replaced_during_fresh_absence_check_fatal(self):
-  a=Files();t=TmpFileProof(ROOT,time.monotonic()+30,a)
+  a=Files();t=TmpFileProof(ROOT,fixture_deadline(),a)
   with t:
    t.observe(P);a.pending=True;old=a.open
    def changing(*args,**kw):
@@ -202,7 +209,7 @@ class FinalBoundaryCases(unittest.TestCase):
    with patch.object(a,'open',side_effect=changing):
     with self.assertRaisesRegex(AssertionError,'PARENT_IDENTITY_RACE'):t.confirm(P,missing(),0)
  def test_final_metadata_cancellation_rejected(self):
-  state=[False];a=Files();t=TmpFileProof(ROOT,time.monotonic()+30,a,cancelled=lambda:state[0])
+  state=[False];a=Files();t=TmpFileProof(ROOT,fixture_deadline(),a,cancelled=lambda:state[0])
   with t:
    t.observe(P);a.pending=True;old_open=a.open;old_standard=a.standard;after_absence=[False]
    def opening(*args,**kw):
@@ -219,7 +226,7 @@ class FinalBoundaryCases(unittest.TestCase):
   with patch.object(g,'_size_once',side_effect=OrdinaryScratchChurn('tmp/a.s',4096)) as calls,patch('build_guard.shutil.disk_usage',side_effect=[types.SimpleNamespace(free=build_guard.MIN_FREE+1),types.SimpleNamespace(free=build_guard.MIN_FREE-1)]):
    # Restore the actual periodic guard instead of the synthetic fixture's no-op.
    with patch.object(g,'_enumeration_resources',Guard._enumeration_resources.__get__(g)):
-    with self.assertRaisesRegex(AssertionError,'FREE_SPACE_GUARD'):g.scan_epoch(time.monotonic()+30)
+    with self.assertRaisesRegex(AssertionError,'FREE_SPACE_GUARD'):g.scan_epoch(fixture_deadline())
   self.assertEqual(calls.call_count,1)
 
 import unittest,pathlib,types,stat,time,copy,json,io
@@ -269,7 +276,7 @@ class IntegratedWalker(unittest.TestCase):
   try:
    with patch('tmp_file_snapshot.API',side_effect=factory),patch('build_guard.os.walk',walk),patch('build_guard.os.lstat',metadata),patch.object(pathlib.Path,'exists',return_value=True),patch.object(pathlib.Path,'is_symlink',return_value=False),patch.object(pathlib.Path,'is_junction',return_value=False),patch.object(g,'_leased_pass',return_value=None):
     if mutate:mutate(g)
-    value=g.scan_epoch(time.monotonic()+30)
+    value=g.scan_epoch(fixture_deadline())
    return g,value,apis,walks[0],None
   except BaseException as error:return g,None,apis,walks[0],error
  def failure(self,mode,kind,code=None):
@@ -307,7 +314,7 @@ class WorkerTransport(unittest.TestCase):
  def test_actual_worker_complete_frame_follows_full_restart(self):
   import census_worker
   spec={'root':str(ROOT),'work':str(ROOT),'out':str(ROOT.parent/'out'),'cargo':str(ROOT.parent/'cargo'),'rustup':str(ROOT.parent/'rustup'),'globalStart':time.monotonic()}
-  req={'nonce':'b'*32,'generation':2,'specHash':census_worker.spec_hash(spec),'spec':spec,'state':{},'deadline':time.monotonic()+30}
+  req={'nonce':'b'*32,'generation':2,'specHash':census_worker.spec_hash(spec),'spec':spec,'state':{},'deadline':fixture_deadline()}
   output=io.StringIO();stdin=types.SimpleNamespace(buffer=io.BytesIO((json.dumps(req)+'\n').encode()));walks=[0];apis=[]
   def factory():a=WalkerFiles('delete');apis.append(a);return a
   def walk(root,followlinks,onerror):
@@ -320,5 +327,36 @@ class WorkerTransport(unittest.TestCase):
   with patch('tmp_file_snapshot.API',side_effect=factory),patch('census_worker.sys.stdin',stdin),patch('census_worker.sys.stdout',output),patch('build_guard.os.walk',walk),patch('build_guard.os.lstat',metadata),patch.object(pathlib.Path,'exists',return_value=True),patch.object(pathlib.Path,'is_symlink',return_value=False),patch.object(pathlib.Path,'is_junction',return_value=False),patch.object(Guard,'_leased_pass',return_value=None),patch('build_guard.shutil.disk_usage',return_value=types.SimpleNamespace(free=MIN_FREE+MAX_OUTPUT+1)):
    census_worker.main()
   terminal=json.loads(output.getvalue().splitlines()[-1]);self.assertEqual(terminal['kind'],'complete');self.assertTrue(terminal['complete']);self.assertEqual(terminal['payload']['bytes'],7);s=terminal['payload']['state'];self.assertEqual(s['snapshot_incomplete'],1);self.assertEqual(s['ordinary_churn_count'],1);self.assertTrue(all(r['complete'] for r in s['root_scans']));self.assertTrue(all(not r['completedTotalReported'] for r in s['recent_churn']));self.assertTrue(all(len(x.opened)==len(x.closed) for x in apis))
+
+
+class ConservativeFixtureDeadline(unittest.TestCase):
+ def test_fractional_raw_deadline_reproduces_original_rejection(self):
+  for now in (30.001,255.999):
+   with self.subTest(now=now),self.assertRaisesRegex(AssertionError,"TMP_WINDOW_BOUND"):
+    TmpFileProof(ROOT,now+30,api=Files(),clock=lambda value=now:value)
+ def test_conservative_deadline_is_within_unchanged_guard(self):
+  for now in (0.0,10.0,30.001,255.999,15603.109):
+   with self.subTest(now=now):
+    clock=lambda value=now:value;deadline=fixture_deadline(clock)
+    self.assertGreater(deadline,now);self.assertLessEqual(deadline-now,30)
+    with TmpFileProof(ROOT,deadline,api=Files(),clock=clock):pass
+ def test_expired_deadlines_remain_rejected(self):
+  for now in (10.0,30.001):
+   with self.subTest(now=now),self.assertRaisesRegex(AssertionError,"TMP_WINDOW_BOUND"):
+    TmpFileProof(ROOT,now,api=Files(),clock=lambda value=now:value)
+ def test_one_representable_step_above_ceiling_remains_rejected(self):
+  for now in (10.0,30.001,255.999):
+   with self.subTest(now=now),self.assertRaisesRegex(AssertionError,"TMP_WINDOW_BOUND"):
+    TmpFileProof(ROOT,math.nextafter(now+30,math.inf),api=Files(),clock=lambda value=now:value)
+ def test_helper_samples_its_clock_once(self):
+  calls=[]
+  def clock():calls.append(1);return 30.001
+  deadline=fixture_deadline(clock);self.assertEqual(len(calls),1);self.assertLessEqual(deadline-30.001,30)
+ def test_invalid_or_unrepresentable_clock_is_rejected(self):
+  for value in (math.nan,math.inf,-math.inf,float(2**60)):
+   with self.subTest(value=str(value)),self.assertRaises(AssertionError):fixture_deadline(lambda:value)
+ def test_explicit_clock_does_not_read_default_clock(self):
+  with patch.object(time,"monotonic",side_effect=AssertionError("DEFAULT_CLOCK_USED")):
+   self.assertGreater(fixture_deadline(lambda:10.0),10.0)
 
 if __name__=='__main__':unittest.main()
