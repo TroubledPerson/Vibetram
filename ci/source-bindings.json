@@ -233,7 +233,7 @@
   },
   {
     "path": "ci/perl_overlay.py",
-    "sha256": "a4992b554637e3525449662297b4e7770c3df0f6e15dc7f2de3552a9e246ced2"
+    "sha256": "ae030945ac9a9c9843f09f55f788697cf964b453485d365830328799570c0e4b"
   },
   {
     "path": "ci/perl_path_probe.py",
@@ -361,7 +361,7 @@
   },
   {
     "path": "ci/test_perl_overlay.py",
-    "sha256": "04a200d24be1992249d504df1621ac9c5d1aeb71d02941cd9f8f430e92c75f67"
+    "sha256": "638078b9b0df269812f9d2846259d05298a9970255385db29e939b3a57437b12"
   },
   {
     "path": "ci/test_perl_path_probe.py",

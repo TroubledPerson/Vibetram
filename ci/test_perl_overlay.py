@@ -431,7 +431,7 @@ class OpenSSLShellCommandBoundary(unittest.TestCase):
  def test_exact_roles_shell_encoded_without_canonical_mutation(self):
   from perl_overlay import openssl_shell_tool
   for role,path in self.paths().items():
-   raw=str(path);self.assertEqual(openssl_shell_tool(role,raw),'"'+path.as_posix()+'"');self.assertEqual(str(path),raw)
+   raw=str(path);self.assertEqual(openssl_shell_tool(role,raw),"'"+path.as_posix()+"'");self.assertEqual(str(path),raw)
  def test_basename_standalone_qualification_is_unchanged(self):
   from perl_overlay import openssl_shell_tool
   for role,path in self.paths().items():self.assertEqual(openssl_shell_tool(role,path.name),path.name)
@@ -492,7 +492,7 @@ class TargetedCargoOpenSSLProbe(unittest.TestCase):
   fields={"CROSS_COMPILE":"",**{role:"$(CROSS_COMPILE)"+openssl_shell_tool(role,str(tools/name)) for role,name in (("CC","clang.exe"),("CXX","clang++.exe"),("AR","llvm-ar.exe"),("RANLIB","llvm-ranlib.exe"))}}
   configured_tool_fields(fields,True)
   for role in ("CC","CXX","AR","RANLIB"):
-   bad=dict(fields);bad[role]=bad[role].replace('"','')
+   bad=dict(fields);bad[role]=bad[role].replace("'",'')
    with self.subTest(role=role),self.assertRaises(AssertionError):configured_tool_fields(bad,True)
  def recipe(self,target="crypto/libcrypto-lib-ctype.o",source="crypto/ctype.c"):
   from perl_overlay import openssl_shell_tool
@@ -505,7 +505,7 @@ class TargetedCargoOpenSSLProbe(unittest.TestCase):
    args=cargo_recipe_arguments(self.recipe(target,source),target,source);self.assertEqual(args[0],PATHS["clang.exe"].as_posix());self.assertEqual(args[-1],source)
  def test_unquoted_compiler_path_rejected(self):
   from perl_overlay import cargo_recipe_arguments
-  with self.assertRaises(AssertionError):cargo_recipe_arguments(self.recipe().replace('"',''),"crypto/libcrypto-lib-ctype.o","crypto/ctype.c")
+  with self.assertRaises(AssertionError):cargo_recipe_arguments(self.recipe().replace("'",''),"crypto/libcrypto-lib-ctype.o","crypto/ctype.c")
  def test_duplicate_compiler_or_other_target_rejected(self):
   from perl_overlay import cargo_recipe_arguments
   for text,target,src in ((self.recipe()+"\n"+self.recipe(),"crypto/libcrypto-lib-ctype.o","crypto/ctype.c"),(self.recipe(),"other.o","crypto/ctype.c")):
@@ -530,5 +530,117 @@ class TargetedCargoOpenSSLProbe(unittest.TestCase):
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());j=w["jobs"]["openssl-probe"]
   self.assertEqual(j["timeout-minutes"],12);self.assertEqual(j["permissions"],{"contents":"read"});self.assertEqual(j["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-cargo-command");self.assertEqual(j["steps"][1]["timeout-minutes"],10);self.assertEqual(j["steps"][2]["with"]["retention-days"],3)
   self.assertFalse(any("provision" in str(s).lower() for s in j["steps"]));self.assertIn("[unsigned-trial-191]",w["jobs"]["unsigned-qualification"]["if"]);self.assertEqual(w["jobs"]["release"]["if"],chr(36)+"{{ false }}")
+
+
+class IntegratedCommandEvidence(unittest.TestCase):
+ def work(self):
+  import pathlib
+  return pathlib.Path("D:/a/Vibetram/Vibetram/openssl-probe-work")
+ def recipe(self,assembly=False):
+  from perl_overlay import openssl_shell_tool
+  from ndk_compilers import PATHS
+  target="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" if assembly else "crypto/libcrypto-lib-ctype.o"
+  source="crypto/aes/aes-sha1-armv8.S" if assembly else "crypto/ctype.c"
+  return openssl_shell_tool("CC",str(PATHS["clang.exe"]))+" -I. --target=aarch64-linux-android29 -c -o "+target+" "+source,target,source
+ def generator(self):
+  from perl_overlay import openssl_shell_tool
+  from ndk_compilers import PATHS
+  return 'CC="'+openssl_shell_tool("CC",str(PATHS["clang.exe"]))+'" perl.exe -I. -Iutil/perl crypto/aes/asm/aes-sha1-armv8.pl "linux64" -Icrypto -DANDROID crypto/aes/aes-sha1-armv8.S'
+ def test_compiler_and_generator_classified_separately(self):
+  from perl_overlay import cargo_recipe_arguments
+  cc,t,s=self.recipe(True);args=cargo_recipe_arguments(self.generator()+"\n"+cc,t,s,True);self.assertTrue(args[0].endswith("/clang.exe"))
+ def test_generator_presence_bound_to_source_state(self):
+  from perl_overlay import cargo_recipe_arguments
+  cc,t,s=self.recipe(True);cargo_recipe_arguments(cc,t,s,False)
+  with self.assertRaises(AssertionError):cargo_recipe_arguments(cc,t,s,True)
+  with self.assertRaises(AssertionError):cargo_recipe_arguments(self.generator()+"\n"+cc,t,s,False)
+ def test_duplicate_unknown_or_other_generator_commands_fatal(self):
+  from perl_overlay import cargo_recipe_arguments
+  cc,t,s=self.recipe(True)
+  for output in (self.generator()+"\n"+self.generator()+"\n"+cc,self.generator().replace("aes-sha1-armv8.pl","unknown.pl")+"\n"+cc,cc+"\necho unknown",cc.replace("clang.exe","clang-cl.exe")):
+   with self.subTest(output=output[:50]),self.assertRaises(AssertionError):cargo_recipe_arguments(output,t,s,True)
+ def test_normal_command_complete_with_normalized_root(self):
+  from perl_overlay import command_evidence
+  cc,t,s=self.recipe();r=command_evidence(cc,t,self.work());self.assertTrue(r["completeForQualification"]);self.assertIn("<ndk>",r["normalizedCommandText"]);self.assertNotIn("Program Files",r["normalizedCommandText"])
+ def test_generator_command_complete(self):
+  from perl_overlay import command_evidence
+  cc,t,s=self.recipe(True);self.assertTrue(command_evidence(self.generator()+"\n"+cc,t,self.work())["completeForQualification"])
+ def test_work_relative_macro_is_normalized(self):
+  from perl_overlay import command_evidence
+  cc,t,s=self.recipe();text=cc.replace("-I.",'-I. -DENGINESDIR=\\"/d/a/Vibetram/Vibetram/openssl-probe-work/install/lib\\"');r=command_evidence(text,t,self.work());self.assertTrue(r["completeForQualification"]);self.assertIn("<work>",r["normalizedCommandText"])
+ def test_package_constant_openssldir_is_allowed(self):
+  from perl_overlay import command_evidence
+  cc,t,s=self.recipe();r=command_evidence(cc.replace("-I.",'-I. -DOPENSSLDIR=\\"/usr/local/ssl\\"'),t,self.work());self.assertTrue(r["completeForQualification"])
+ def test_outside_root_forms_are_withheld_and_fatal(self):
+  from perl_overlay import command_evidence
+  cc,t,s=self.recipe()
+  paths=["E:/private/file","D:/outside/file","C:/Users/synthetic-person/file",r"C:\Users\synthetic-person\file",r"\\server\share\file",r"\\?\C:\outside",r"\\.\C:\outside","//server/share/file","/etc/private","-I/outside","~/private","C:relative","D:/a/Vibetram/Vibetram/openssl-probe-work-other/file","D:/a/Vibetram/Vibetram/openssl-probe-work/../outside","D:/a/Vibetram/Vibetram/openssl-probe-work/../../outside","c:/program files (x86)/Android/android-sdk/ndk/30.0.16248370/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe"]
+  for value in paths:
+   with self.subTest(value=value):
+    r=command_evidence(cc+" "+value,t,self.work());self.assertFalse(r["completeForQualification"]);self.assertNotIn("normalizedCommandText",r)
+ def test_control_unicode_malformed_and_markers_fatal(self):
+  from perl_overlay import command_evidence
+  cc,t,s=self.recipe()
+  for suffix in ("\x00","\u202eprivate"," 'unterminated"," <ndk>/spoof"," $(PRIVATE)"," "+chr(96)+"unknown"+chr(96)):
+   with self.subTest(suffix=repr(suffix)):
+    r=command_evidence(cc+suffix,t,self.work());self.assertFalse(r["completeForQualification"]);self.assertNotIn("normalizedCommandText",r)
+ def test_private_values_never_retained(self):
+  from perl_overlay import command_evidence
+  cc,t,s=self.recipe()
+  for suffix in (" TOKEN=synthetic-private-value"," PASSWORD=synthetic-private-value"," owner@example.invalid"):
+   r=command_evidence(cc+suffix,t,self.work());self.assertFalse(r["completeForQualification"]);self.assertNotIn("synthetic-private-value",json.dumps(r));self.assertNotIn("owner@example.invalid",json.dumps(r))
+ def test_oversize_and_line_bound_fail_with_metadata_only(self):
+  from perl_overlay import command_evidence
+  cc,t,s=self.recipe()
+  for output in (cc+"x"*32769,"\n".join([cc]*129)):
+   r=command_evidence(output,t,self.work());self.assertFalse(r["completeForQualification"]);self.assertNotIn("normalizedCommandText",r);self.assertLess(len(json.dumps(r)),1024)
+ def store(self,deny=False):
+  import io
+  values={}
+  class File:
+   def __init__(self,name):self.name=name
+   def open(self,mode):
+    if deny:raise PermissionError(5,"synthetic")
+    if self.name in values:raise FileExistsError
+    class Buffer(io.BytesIO):
+     def __enter__(b):return b
+     def __exit__(b,*args):values[self.name]=b.getvalue();b.close()
+    return Buffer()
+  class Out:
+   def __truediv__(self,name):return File(name)
+  return Out(),values
+ def test_prevalidation_receipt_survives_unknown_command_failure(self):
+  from perl_overlay import validated_command_evidence
+  cc,t,s=self.recipe();out,values=self.store()
+  with self.assertRaises(AssertionError):validated_command_evidence(out,"dryrun",cc+"\nunknown",t,s,self.work(),False)
+  self.assertEqual(len(values),2);initial=json.loads(values["command-ctype-dryrun.json"]);failure=json.loads(values["command-ctype-dryrun-failure.json"])
+  self.assertFalse(initial["completeForQualification"]);self.assertFalse(failure["partialBuildAccepted"]);self.assertEqual(failure["code"],"COMMAND_EVIDENCE_INCOMPLETE")
+ def test_parser_failure_retains_safe_complete_input(self):
+  from perl_overlay import validated_command_evidence
+  cc,t,s=self.recipe();out,values=self.store()
+  with self.assertRaises(AssertionError):validated_command_evidence(out,"dryrun",cc.replace(" -c "," -c -c "),t,s,self.work(),False)
+  self.assertTrue(json.loads(values["command-ctype-dryrun.json"])["completeForQualification"]);self.assertEqual(json.loads(values["command-ctype-dryrun-failure.json"])["code"],"TARGETED_RECIPE_IDENTITY")
+ def test_receipt_denial_stops_without_fallback(self):
+  from perl_overlay import validated_command_evidence
+  cc,t,s=self.recipe();out,values=self.store(True)
+  with self.assertRaises(PermissionError):validated_command_evidence(out,"dryrun",cc,t,s,self.work(),False)
+  self.assertEqual(values,{})
+ def test_error_codes_preserved_without_arbitrary_exception_text(self):
+  import perl_overlay as p
+  from unittest.mock import patch
+  cc,t,s=self.recipe();out,values=self.store();err=OSError(5,"synthetic-private-message");err.winerror=32
+  with patch("perl_overlay.cargo_recipe_arguments",side_effect=err),self.assertRaises(OSError):p.validated_command_evidence(out,"dryrun",cc,t,s,self.work(),False)
+  failure=json.loads(values["command-ctype-dryrun-failure.json"]);self.assertEqual(failure["errno"],5);self.assertEqual(failure["winerror"],32);self.assertNotIn("synthetic-private-message",json.dumps(failure))
+ def test_receipt_scope_and_size_fail_closed(self):
+  from perl_overlay import put_command_evidence
+  out,values=self.store()
+  for stage,target,row in (("other","crypto/libcrypto-lib-ctype.o",{}),("dryrun","outside",{}),("object","crypto/libcrypto-lib-ctype.o",{"x":"a"*50000})):
+   with self.subTest(stage=stage),self.assertRaises(AssertionError):put_command_evidence(out,stage,target,row)
+  self.assertEqual(values,{})
+ def test_live_call_wiring_before_parse_and_each_object_checkpoint(self):
+  import inspect,perl_overlay as p
+  text=inspect.getsource(p.qualify_cargo_objects)
+  self.assertIn('validated_command_evidence(out,"dryrun"',text);self.assertIn('validated_command_evidence(out,"executed"',text);self.assertIn('put_command_evidence(out,"object"',text);self.assertIn('TARGETED_GENERATOR_CHANGED',text)
+  text=inspect.getsource(p.validated_command_evidence);self.assertLess(text.index("put_command_evidence(out,stage"),text.index("return cargo_recipe_arguments"))
 
 if __name__=="__main__":unittest.main()

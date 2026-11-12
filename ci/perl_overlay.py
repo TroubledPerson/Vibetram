@@ -387,7 +387,7 @@ def openssl_shell_tool(role,value):
  path=roles[role]
  if value==path.name:return value
  assert value==str(path),"OPENSSL_COMMAND_EXACT_CANONICAL_PATH"
- return '"'+path.as_posix()+'"'
+ return "'"+path.as_posix()+"'"
 
 def openssl_shell_tools_program():
  from ndk_compilers import PATHS
@@ -779,20 +779,90 @@ def configured_tool_fields(fields,cargo_commands=False):
   expected=openssl_shell_tool(role,str(tools/name)) if cargo_commands else name
   assert fields.get(role)=="$(CROSS_COMPILE)"+expected,"CONFIGURE_TOOL_SELECTION_CHANGED"
 
-def cargo_recipe_arguments(output,target,source):
+def _recipe_word(value):
+ return bool(re.fullmatch(r"[A-Za-z0-9_./=,+:-]+",value) or re.fullmatch(r'-D(?:OPENSSLDIR|ENGINESDIR|MODULESDIR)=\"/[A-Za-z0-9_./+-]+\"',value))
+
+def cargo_recipe_arguments(output,target,source,generator_required=None):
  import shlex
  from ndk_compilers import PATHS
  allowed={"crypto/libcrypto-lib-ctype.o":"crypto/ctype.c","crypto/aes/libcrypto-lib-aes-sha1-armv8.o":"crypto/aes/aes-sha1-armv8.S"}
  assert allowed.get(target)==source,"TARGETED_OBJECT_SCOPE"
- expected=openssl_shell_tool("CC",str(PATHS["clang.exe"]))
- lines=[line.strip() for line in output.splitlines() if "clang.exe" in line]
- assert len(lines)==1 and lines[0].startswith(expected+" "),"TARGETED_COMPILER_COMMAND_COUNT_OR_ENCODING"
- args=shlex.split(lines[0],posix=True)
- assert args[0]==PATHS["clang.exe"].as_posix() and args.count("-c")==1 and args.count("-o")==1 and args[args.index("-o")+1]==target and args[-1]==source,"TARGETED_RECIPE_IDENTITY"
- assert "--target=aarch64-linux-android29" in args,"TARGETED_RECIPE_ANDROID_TARGET"
- assert all(re.fullmatch(r"[A-Za-z0-9_./=,+:-]+",x) or re.fullmatch(r'-D(?:OPENSSLDIR|ENGINESDIR|MODULESDIR)=\"/[A-Za-z0-9_./+-]+\"',x) for x in args[1:]),"TARGETED_UNEXPECTED_SHELL_SYNTAX"
- assert not any(x.startswith("/") or x.startswith("-I/") for x in args[1:]),"TARGETED_NATIVE_INPUT_PATH"
- return args
+ assert isinstance(output,str) and len(output.encode())<=32768,"TARGETED_RECIPE_BOUND"
+ lines=[line.strip() for line in output.splitlines() if line.strip()];assert len(lines)<=128,"TARGETED_RECIPE_LINES"
+ encoded=openssl_shell_tool("CC",str(PATHS["clang.exe"]));compiler=[];generators=[]
+ for line in lines:
+  try:args=shlex.split(line,posix=True)
+  except ValueError:raise AssertionError("TARGETED_RECIPE_QUOTING") from None
+  assert args and len(args)<=128 and all(len(x)<=2048 for x in args),"TARGETED_ARGV_BOUND"
+  if args[0]==PATHS["clang.exe"].as_posix():
+   assert line.startswith(encoded+" "),"TARGETED_COMPILER_ENCODING"
+   assert args.count("-c")==1 and args.count("-o")==1 and args[args.index("-o")+1]==target and args[-1]==source,"TARGETED_RECIPE_IDENTITY"
+   assert "--target=aarch64-linux-android29" in args and all(_recipe_word(x) for x in args[1:]),"TARGETED_UNEXPECTED_SHELL_SYNTAX"
+   assert not any(x.startswith("/") or x.startswith("-I/") for x in args[1:]),"TARGETED_NATIVE_INPUT_PATH"
+   compiler.append(args)
+  elif args[0]=="CC="+encoded:
+   assert len(args)>=5 and target=="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" and args[1]=="perl.exe","TARGETED_GENERATOR_ROLE"
+   script="crypto/aes/asm/aes-sha1-armv8.pl";assert args.count(script)==1,"TARGETED_GENERATOR_SCRIPT"
+   index=args.index(script);assert index+2<len(args),"TARGETED_GENERATOR_ARGUMENT_COUNT"
+   assert all(x in ("-I.","-Iutil/perl") for x in args[2:index]) and len(set(args[2:index]))==len(args[2:index]),"TARGETED_GENERATOR_PREFIX"
+   assert args[index+1]=="linux64" and args[-1]==source,"TARGETED_GENERATOR_TARGET"
+   assert all(_recipe_word(x) and not x.startswith("/") and not x.startswith("-I/") for x in args[index+2:-1]),"TARGETED_GENERATOR_ARGUMENT"
+   generators.append(args)
+  else:raise AssertionError("TARGETED_UNKNOWN_COMMAND")
+ assert len(compiler)==1 and len(generators)<=1,"TARGETED_COMMAND_COUNT"
+ if generator_required is not None:assert type(generator_required) is bool and len(generators)==int(generator_required),"TARGETED_GENERATOR_COUNT"
+ return compiler[0]
+
+def command_evidence(output,target,work):
+ import shlex
+ allowed={"crypto/libcrypto-lib-ctype.o","crypto/aes/libcrypto-lib-aes-sha1-armv8.o"}
+ assert target in allowed and isinstance(output,str),"COMMAND_EVIDENCE_SCOPE"
+ try:raw=output.encode("utf-8")
+ except UnicodeEncodeError:raw=output.encode("utf-8","surrogatepass");invalid=True
+ else:invalid=False
+ row={"target":target,"inputBytes":len(raw),"inputSHA256":hashlib.sha256(raw).hexdigest(),"completeForQualification":False}
+ if invalid or any(ord(c)>126 or ord(c)<32 and c not in "\n\r\t" for c in output):return {**row,"state":"COMMAND_TEXT_ENCODING_FATAL"}
+ if len(raw)>32768 or len(output.splitlines())>128:return {**row,"state":"COMMAND_TEXT_SIZE_FATAL"}
+ if any(x in output for x in ("<ndk>","<work>","<redacted>")):return {**row,"state":"COMMAND_TEXT_MARKER_FATAL"}
+ from ndk_linker import NDK
+ tools=NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin"
+ normalized=output
+ roots=[(str(tools),"<ndk>"),(tools.as_posix(),"<ndk>"),(str(work),"<work>"),(work.as_posix(),"<work>")]
+ if re.fullmatch(r"[A-Za-z]:/.*",work.as_posix()):roots.append(("/"+work.as_posix()[0].lower()+"/"+work.as_posix()[3:],"<work>"))
+ for prefix,marker in sorted(set(roots),key=lambda x:len(x[0]),reverse=True):
+  normalized=re.sub(re.escape(prefix)+r"(?=$|[\\/\"'])",lambda _:marker,normalized)
+ if re.search(r"(?i)(?:[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|AUTHORIZATION|API_KEY)[A-Z0-9_]*)\s*=",normalized) or re.search(r"(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}",normalized):return {**row,"state":"COMMAND_PRIVATE_FIELD_FATAL"}
+ if re.search(r"[A-Za-z]:|\\\\|://",normalized) or any(x in normalized for x in ("$",chr(96),"\x00")):return {**row,"state":"COMMAND_UNAPPROVED_PATH_FATAL"}
+ for line in normalized.splitlines():
+  if not line.strip():continue
+  try:tokens=shlex.split(line,posix=True)
+  except ValueError:return {**row,"state":"COMMAND_QUOTING_FATAL"}
+  if not tokens or not (tokens[0]=="<ndk>/clang.exe" or tokens[0].startswith("CC=") and len(tokens)>1 and tokens[1]=="perl.exe"):return {**row,"state":"COMMAND_UNCLASSIFIED_FATAL"}
+  for token in tokens:
+   if token in ("-DOPENSSLDIR=\"/usr/local/ssl\"","-DOPENSSLDIR='/usr/local/ssl'"):continue
+   value=token.split("=",1)[-1].strip("'\"")
+   if value.startswith(("/","~")) or token.startswith(("-I/","-L/")) or "\\" in token or re.search(r"(?:^|[/\\])\.\.(?=[/\\]|$)",value) or token in ("|","||","&&",";","<",">",">>"):return {**row,"state":"COMMAND_UNAPPROVED_PATH_FATAL"}
+ return {**row,"state":"BOUNDED_NORMALIZED_COMMAND_TEXT","completeForQualification":True,"normalizedCommandText":normalized}
+
+def put_command_evidence(out,stage,target,row):
+ names={"crypto/libcrypto-lib-ctype.o":"ctype","crypto/aes/libcrypto-lib-aes-sha1-armv8.o":"aes-sha1"}
+ assert target in names and stage in ("dryrun","executed","dryrun-failure","executed-failure","object"),"COMMAND_RECEIPT_SCOPE"
+ data=(json.dumps(row,indent=2)+"\n").encode();assert len(data)<=49152,"COMMAND_RECEIPT_BOUND"
+ with (out/("command-"+names[target]+"-"+stage+".json")).open("xb") as f:f.write(data)
+
+def validated_command_evidence(out,stage,output,target,source,work,generator_required):
+ assert stage in ("dryrun","executed"),"COMMAND_STAGE"
+ evidence=command_evidence(output,target,work);put_command_evidence(out,stage,target,evidence)
+ try:
+  assert evidence["completeForQualification"],"COMMAND_EVIDENCE_INCOMPLETE"
+  return cargo_recipe_arguments(output,target,source,generator_required)
+ except BaseException as error:
+  code=error.args[0] if error.args and isinstance(error.args[0],str) and re.fullmatch(r"[A-Z_0-9]{1,80}",error.args[0]) else "COMMAND_VALIDATION_FAILED"
+  failure={"state":"COMMAND_VALIDATION_FAILED_FATAL","target":target,"inputSHA256":evidence["inputSHA256"],"errorClass":type(error).__name__[:64],"code":code,"errno":getattr(error,"errno",None) if type(getattr(error,"errno",None)) is int else None,"winerror":getattr(error,"winerror",None) if type(getattr(error,"winerror",None)) is int else None,"partialBuildAccepted":False}
+  try:put_command_evidence(out,stage+"-failure",target,failure)
+  except BaseException as report_error:error.add_note("COMMAND_FAILURE_RECEIPT_FAILED:"+type(report_error).__name__)
+  raise
+
 
 def qualify_cargo_objects(guard,env,work,out,src,perl,configuration):
  from openssl_probe import PHYSICAL_SDK,CHECKSUM
@@ -813,15 +883,20 @@ def qualify_cargo_objects(guard,env,work,out,src,perl,configuration):
   obj=src/target;assert not obj.exists(),"TARGETED_EXISTING_OBJECT"
   initial=smoke_artifact_identity(src/source) if (src/source).is_file() else None
   dry=guard.run([make,"-f","Makefile","--dry-run","-j1",target],cwd=src,env=cross,capture=True,timeout=30)
-  args=cargo_recipe_arguments(dry.stdout,target,source)
+  generator_required=target=="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" and initial is None
+  generator=src/"crypto/aes/asm/aes-sha1-armv8.pl"
+  generator_identity=smoke_artifact_identity(generator) if target=="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" else None
+  args=validated_command_evidence(out,"dryrun",dry.stdout,target,source,work,generator_required)
   done=guard.run([make,"-f","Makefile","-j1",target],cwd=src,env=cross,capture=True,timeout=90)
-  assert cargo_recipe_arguments(done.stdout,target,source)==args,"TARGETED_EXECUTED_RECIPE_CHANGED"
+  assert validated_command_evidence(out,"executed",done.stdout,target,source,work,generator_required)==args,"TARGETED_EXECUTED_RECIPE_CHANGED"
+  if generator_identity is not None:assert smoke_artifact_identity(generator)==generator_identity,"TARGETED_GENERATOR_CHANGED"
   meta=smoke_artifact_identity(obj);assert 64<=meta["bytes"]<=2*1024**2,"TARGETED_OBJECT_SIZE"
   data=obj.read_bytes();assert data[:6]==b"\x7fELF\x02\x01" and int.from_bytes(data[16:18],"little")==1 and int.from_bytes(data[18:20],"little")==183,"TARGETED_OBJECT_NOT_ARM64_REL"
   source_meta=smoke_artifact_identity(src/source)
   if initial is not None:assert initial==source_meta,"TARGETED_SOURCE_CHANGED"
   assert hashlib.sha256(makefile.read_bytes()).hexdigest()==before,"TARGETED_MAKEFILE_CHANGED"
-  rows.append({"target":target,"source":source,"compilerArgv":args,"object":meta,"sourceIdentity":source_meta,"generatedSource":initial is None,"ELF64":True,"machine":"AArch64","type":"REL","executed":False})
+  row={"target":target,"source":source,"compilerArgv":args,"object":meta,"sourceIdentity":source_meta,"generatedSource":initial is None,"ELF64":True,"machine":"AArch64","type":"REL","executed":False}
+  put_command_evidence(out,"object",target,{"state":"ONE_OBJECT_VALIDATED_NOT_OVERALL_PASS",**row});rows.append(row)
  report={"state":"PASS_CARGO_EQUIVALENT_OPENSSL_TWO_OBJECTS","objects":rows,"configureCompilerFields":configuration["makefileFields"],"sourceArchiveSHA256":CHECKSUM,"makefileSHA256":before,"makeSHA256":MAKE_SHA,"shellSHA256":"5490d0da5e7cf9d92068cc48fcc590f2bcf8564add8ff91c3b5fe541eb2d72e3","perlSHA256":GIT_PERL_SHA,"maximumObjects":2,"makeWorkers":1,"fullAndroidBuild":False,"rustProvisioning":False,"signed":False,"releasable":False,"monitor":guard.report()}
  (out/"cargo-command-qualification.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8");print(json.dumps(report,indent=2),flush=True)
  return report
