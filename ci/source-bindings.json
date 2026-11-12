@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "82740eb714978507c87df04f5da6034c1b02dcb670a637f76c960840e2659433"
+    "sha256": "8bbbe24cb8f3ac99e2ef61ff159578bbf5c555ae97edeabb164d66a52638d297"
   },
   {
     "path": ".gitignore",
@@ -165,11 +165,11 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "3ea636f19ced6136e691d2ef4f2464ea2795b70523106564c83df274eab4f300"
+    "sha256": "9f8e928fcc691a2e986f48a235be63cba150f9cbc52cefb3f5cd2b0cb441a3fa"
   },
   {
     "path": "ci/census_supervisor.py",
-    "sha256": "d2d93cc00302761f9bd40d25449eb0f8b3fae4a807163292cca3cfc82533e77a"
+    "sha256": "2c80d52f8f5d3abb10410c2dc1cf4d566580fcec3c82c94765acf92752517394"
   },
   {
     "path": "ci/census_worker.py",
@@ -286,6 +286,10 @@
   {
     "path": "ci/test_build_guard.py",
     "sha256": "59002a34ee1219d268db458c2abafc747b3b7163c2219c3a03646e358130ccda"
+  },
+  {
+    "path": "ci/test_census_original_error.py",
+    "sha256": "5b0d7705edd76ec65359bd796a7d20c0be8d59d92170092cc2b9219f516218b9"
   },
   {
     "path": "ci/test_census_process_fixture.py",

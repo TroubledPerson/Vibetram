@@ -341,7 +341,7 @@ class Guard:
        self.races+=1
        if reading_entry and root==self.work and qualified_ordinary_churn(self.work,p,error):
         scratch.verify_parents();raise OrdinaryScratchChurn(p.relative_to(self.work).as_posix(),total)
-       raise AssertionError('UNVERIFIED_FILE_DISAPPEARANCE')
+       raise AssertionError('UNVERIFIED_FILE_DISAPPEARANCE') from error
       tick()
     tick(True);row['complete']=True;row['completedRootBytes']=total-before
    finally:

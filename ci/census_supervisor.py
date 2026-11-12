@@ -22,18 +22,24 @@ def census_diagnostic(error,roots,location):
  if not isinstance(phase,str) or not re.fullmatch(r"[A-Z_]{1,64}",phase):phase="UNKNOWN"
  index=location.get("rootIndex");relative=safe_diagnostic_relative(location.get("relative"));source="LAST_OPERATION_CONTEXT"
  if type(index) is not int or not 0<=index<len(roots):index=None;relative=None
- filename=getattr(error,"filename",None)
+ # Only the explicit one-hop cause of this exact fatal wrapper is metadata.
+ # Never walk arbitrary context/cause chains or change its failure category.
+ metadata_error=error
+ if type(error) is AssertionError and error.args==('UNVERIFIED_FILE_DISAPPEARANCE',) and type(error.__cause__) is FileNotFoundError:
+  metadata_error=error.__cause__
+ filename=getattr(metadata_error,"filename",None)
  if filename is not None:
   source="OS_FILENAME_OUTSIDE_OWNED_ROOTS";index=None;relative=None
   try:
+   if type(filename) is not str or len(filename)>4096:raise ValueError("BOUNDED_OS_FILENAME")
    path=pathlib.Path(filename)
    if path.is_absolute() and ".." not in path.parts:
     for i,root in enumerate(roots):
      if path.is_relative_to(root):index=i;relative=safe_diagnostic_relative(path.relative_to(root).as_posix());source="OS_FILENAME";break
   except (TypeError,ValueError):source="INVALID_OS_FILENAME"
- name=type(error).__name__;name=name if re.fullmatch(r"[A-Za-z_]{1,80}",name) else "UNRECOGNIZED_ERROR_CLASS"
+ name=type(metadata_error).__name__;name=name if re.fullmatch(r"[A-Za-z_]{1,80}",name) else "UNRECOGNIZED_ERROR_CLASS"
  number=lambda value:value if type(value) is int and -2147483648<=value<=2147483647 else None
- return {"failureCode":census_error_code(error),"phase":phase,"rootIndex":index,"relative":relative,"entrySource":source,"errorClass":name,"errno":number(getattr(error,"errno",None)),"winerror":number(getattr(error,"winerror",None)),"partialTotalAccepted":False}
+ return {"failureCode":census_error_code(error),"phase":phase,"rootIndex":index,"relative":relative,"entrySource":source,"errorClass":name,"errno":number(getattr(metadata_error,"errno",None)),"winerror":number(getattr(metadata_error,"winerror",None)),"partialTotalAccepted":False}
 
 def validate_census_diagnostic(row):
  assert isinstance(row,dict) and set(row)=={"failureCode","phase","rootIndex","relative","entrySource","errorClass","errno","winerror","partialTotalAccepted"},"INVALID_CENSUS_DIAGNOSTIC_SCHEMA"

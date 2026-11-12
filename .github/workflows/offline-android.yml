@@ -84,6 +84,9 @@
           "run": "python -B ci/test_census_supervision.py"
         },
         {
+          "run": "python -B -m unittest discover -s ci -p test_census_original_error.py"
+        },
+        {
           "run": "python -B ci/test_fixture_privacy.py"
         },
         {
