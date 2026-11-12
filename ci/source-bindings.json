@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "8bbbe24cb8f3ac99e2ef61ff159578bbf5c555ae97edeabb164d66a52638d297"
+    "sha256": "b99c64addec21405832a0be9409adb09bf1331295b9c47358672751aebc1e20d"
   },
   {
     "path": ".gitignore",
@@ -165,7 +165,7 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "9f8e928fcc691a2e986f48a235be63cba150f9cbc52cefb3f5cd2b0cb441a3fa"
+    "sha256": "70bdb59184deb5b3f201c99e209d3ec3fcce7297c96dfb037d6ea47ab3ce4a32"
   },
   {
     "path": "ci/census_supervisor.py",
@@ -404,8 +404,16 @@
     "sha256": "d6659b0e676decee0f626e054fd49c640c1bb925cbf62f92ce76d0e0f5df7673"
   },
   {
+    "path": "ci/test_tmp_file_snapshot.py",
+    "sha256": "7790a47a8ce2628fc649121dcfc28d1657528b2fd87219d0e405fefb28dcec7b"
+  },
+  {
     "path": "ci/test_tool_metadata_probe.py",
     "sha256": "284c5348004023b191eee259a7bf623b21a0c5ec97abf4d0d6a15bdc712d1d90"
+  },
+  {
+    "path": "ci/tmp_file_snapshot.py",
+    "sha256": "eea0940401068e4cd2453fd593692951738ee475d2e5400237f3709ebb39404e"
   },
   {
     "path": "ci/tool_metadata_probe.py",

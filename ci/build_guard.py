@@ -264,9 +264,10 @@ class Guard:
    self.census_walk_count+=1
   self.root_scans=[]
   self._census_at('SCRATCH_TRACKER_OPEN',self.work,self.work)
-  with ScratchTracker(self.work,self.scratch_baselines,self.scratch_parent_baselines) as scratch:return self._walk_tracked(lease,scratch)
- def _walk_tracked(self,lease,scratch):
-  total=0;alias_visits=0;target_visits=0
+  from contextlib import ExitStack
+  with ScratchTracker(self.work,self.scratch_baselines,self.scratch_parent_baselines) as scratch,ExitStack() as tmp_stack:return self._walk_tracked(lease,scratch,tmp_stack)
+ def _walk_tracked(self,lease,scratch,tmp_stack):
+  total=0;alias_visits=0;target_visits=0;tmp_proof=None
   observed_dirs=set()
   def walk_error(error):
    path=pathlib.Path(error.filename) if getattr(error,'filename',None) else None
@@ -317,6 +318,16 @@ class Guard:
      for name in files:
       p=pathlib.Path(folder)/name
       self._census_at("FILE_ENTRY_METADATA",root,p)
+      if root==self.work and p.parent==self.work/'tmp':
+       if tmp_proof is None:
+        from tmp_file_snapshot import TmpFileProof
+        deadline=getattr(self,'snapshot_deadline',None);assert deadline is not None,'TMP_CENSUS_WINDOW_REQUIRED'
+        def tmp_sample():
+         self._enumeration_resources(total);self._census_at("FILE_ENTRY_METADATA",root,p)
+        tmp_proof=tmp_stack.enter_context(TmpFileProof(self.work,deadline,sample=tmp_sample,parent_baselines=self.scratch_parent_baselines))
+       try:total+=tmp_proof.count_file(p,total)
+       except FileNotFoundError as error:raise AssertionError('UNVERIFIED_FILE_DISAPPEARANCE') from error
+       row['ordinaryFileEntries']+=1;since+=1;tick();continue
       reading_entry=True
       try:
        meta=fresh_entry(p);reading_entry=False;row['ordinaryFileEntries']+=1;since+=1

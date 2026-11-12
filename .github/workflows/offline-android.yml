@@ -75,6 +75,9 @@
           "run": "python -B ci/test_scratch_snapshot.py"
         },
         {
+          "run": "python -B ci/test_tmp_file_snapshot.py"
+        },
+        {
           "run": "python -B ci/test_scan_efficiency.py"
         },
         {
