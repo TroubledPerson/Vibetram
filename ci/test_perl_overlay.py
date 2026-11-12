@@ -768,6 +768,47 @@ def stage_recipe(cc):
  cc=cc.replace(" -c "," -MMD -MF "+dep+".tmp -c ")
  return "\n".join([cc,"touch "+dep+".tmp","if cmp "+dep+".tmp "+dep+" > /dev/null 2> /dev/null; then "+chr(92),"rm -f "+dep+".tmp; "+chr(92),"else "+chr(92),"mv "+dep+".tmp "+dep+"; "+chr(92),"fi"])
 
+def admitted_test_root(environ=None,api=None):
+ import contextlib,os,pathlib,re
+ @contextlib.contextmanager
+ def lease():
+  env=os.environ if environ is None else environ
+  if "VIBETRAM_TEST_TMP" in env:raw=env["VIBETRAM_TEST_TMP"]
+  else:
+   assert env.get("GITHUB_ACTIONS")=="true" and env.get("RUNNER_OS")=="Windows","FIXTURE_ROOT_NOT_ADMITTED"
+   raw=env.get("RUNNER_TEMP")
+  assert type(raw) is str and 0<len(raw)<=1024 and not any(ord(c)<32 for c in raw),"FIXTURE_ROOT_VALUE"
+  assert not any(c in raw for c in ("%","$","~")) and not any(x in (".","..") for x in raw.replace(chr(92),"/").split("/")),"FIXTURE_ROOT_SYNTAX"
+  path=pathlib.Path(raw)
+  assert path.is_absolute() and re.fullmatch("[A-Za-z]:",path.drive) and 3<=len(path.parts)<=24,"FIXTURE_ROOT_SCOPE"
+  for part in path.parts[1:]:
+   assert not part.endswith((" ",".")) and ":" not in part and not re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?",part),"FIXTURE_ROOT_COMPONENT"
+  import perl_overlay
+  reader=api or perl_overlay.TemplateInputAPI();held=[];rows=[];primary=None
+  def opened(part):
+   h=reader.open(part);held.append(h);row=reader.info(h)
+   assert row["tag"]==0 and not row["attributes"]&0x400 and row["attributes"]&0x10,"FIXTURE_ROOT_NOT_REGULAR_DIRECTORY"
+   return h,row
+  try:
+   part=pathlib.Path(path.anchor)
+   for i,name in enumerate(path.parts):
+    if i:part=part/name
+    h,row=opened(part);rows.append((part,h,row))
+   yield path
+   for part,h,before in rows:
+    current=reader.info(h);_,fresh=opened(part)
+    assert all(before[k]==current[k]==fresh[k] for k in ("identity","attributes","tag")),"FIXTURE_ROOT_IDENTITY_CHANGED"
+  except BaseException as e:primary=e;raise
+  finally:
+   failed=False
+   for h in reversed(held):
+    try:failed=not reader.close(h) or failed
+    except BaseException:failed=True
+   if failed:
+    if primary is not None:primary.add_note("FIXTURE_ROOT_HANDLE_CLOSE_FAILED")
+    else:raise AssertionError("FIXTURE_ROOT_HANDLE_CLOSE_FAILED")
+ return lease()
+
 class TemplateAndStageIntegration(unittest.TestCase):
  def setUp(self):
   import perl_overlay as p
@@ -861,13 +902,98 @@ class TemplateAndStageIntegration(unittest.TestCase):
  def test_real_windows_held_read(self):
   import os
   if os.name!="nt":self.skipTest("Windows only")
-  root=pathlib.Path(os.environ["VIBETRAM_TEST_TMP"])/"template-real";(root/"Configurations").mkdir(parents=True)
-  file=root/"Configurations/unix-Makefile.tmpl";file.write_bytes(self.payload)
-  result=self.p.qualify_openssl_template(root);self.assertEqual(result["sha256"],hashlib.sha256(self.payload).hexdigest())
-  api=self.p.TemplateInputAPI();h=api.open(file,True)
+  import uuid
+  with admitted_test_root() as admitted:
+   root=admitted/("template-real-"+uuid.uuid4().hex);assert not root.exists(),"FIXTURE_CHILD_COLLISION"
+   (root/"Configurations").mkdir(parents=True)
+   file=root/"Configurations/unix-Makefile.tmpl";file.write_bytes(self.payload)
+   result=self.p.qualify_openssl_template(root);self.assertEqual(result["sha256"],hashlib.sha256(self.payload).hexdigest())
+   api=self.p.TemplateInputAPI();h=api.open(file,True)
+   try:
+    with self.assertRaises(OSError):file.write_bytes(b"change")
+   finally:self.assertTrue(api.close(h))
+   self.assertEqual(file.read_bytes(),self.payload)
+
+
+class FixtureRootAdmission(unittest.TestCase):
+ def setUp(self):
+  self.root=pathlib.Path("D:/owned/admitted-fixtures")
+  self.explicit={"VIBETRAM_TEST_TMP":str(self.root)}
+  self.hosted={"GITHUB_ACTIONS":"true","RUNNER_OS":"Windows","RUNNER_TEMP":str(self.root)}
+ def api(self,mode=None):
+  root=self.root
+  class Fake:
+   def __init__(self):self.opened=[];self.closed=[];self.paths={};self.ids={};self.changed=False
+   def open(self,path,read=False):
+    if mode=="denied":raise PermissionError(13,"synthetic")
+    if mode=="missing" and path==root:raise FileNotFoundError(2,"synthetic")
+    self.ids.setdefault(str(path),len(self.ids)+1);h=len(self.opened)+1;self.opened.append(h);self.paths[h]=path;return h
+   def info(self,h):
+    path=self.paths[h];r={"identity":[1,self.ids[str(path)],0],"attributes":0x10,"tag":0,"bytes":4096 if self.changed else 64}
+    if mode=="reparse" and path==root:r.update(attributes=0x410,tag=0xA000000C)
+    if mode=="ancestor-reparse" and path!=root:r.update(attributes=0x410,tag=0xA000000C)
+    if mode=="file" and path==root:r["attributes"]=0x80
+    if mode=="replacement" and self.changed and path==root:r["identity"]=[1,999,0]
+    return r
+   def close(self,h):
+    self.closed.append(h)
+    return mode!="close-false"
+  return Fake()
+ def selected(self,env,mode=None,mutate=False):
+  a=self.api(mode)
   try:
-   with self.assertRaises(OSError):file.write_bytes(b"change")
-  finally:self.assertTrue(api.close(h))
-  self.assertEqual(file.read_bytes(),self.payload)
+   with admitted_test_root(env,a) as root:
+    self.assertEqual(root,self.root)
+    if mutate:a.changed=True
+  finally:self.assertEqual(set(a.opened),set(a.closed))
+ def test_explicit_root(self):self.selected(self.explicit)
+ def test_hosted_root(self):self.selected(self.hosted)
+ def test_explicit_precedence(self):self.selected({**self.hosted,"RUNNER_TEMP":"C:/outside/unused","VIBETRAM_TEST_TMP":str(self.root)})
+ def test_no_environment(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_NOT_ADMITTED"):self.selected({})
+ def test_local_runner_temp_not_implicitly_admitted(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_NOT_ADMITTED"):self.selected({"RUNNER_TEMP":str(self.root)})
+ def test_wrong_host_platform(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_NOT_ADMITTED"):self.selected({**self.hosted,"RUNNER_OS":"Linux"})
+ def test_host_marker_exact(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_NOT_ADMITTED"):self.selected({**self.hosted,"GITHUB_ACTIONS":"TRUE"})
+ def test_missing_host_root(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_VALUE"):self.selected({"GITHUB_ACTIONS":"true","RUNNER_OS":"Windows"})
+ def test_invalid_explicit_no_host_fallback(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_VALUE"):self.selected({**self.hosted,"VIBETRAM_TEST_TMP":""})
+ def test_relative_drive_root_and_traversal_rejected(self):
+  for value in ("relative","D:relative","D:/","D:/owned/../outside","D:/owned/./fixtures"):
+   with self.subTest(value=value),self.assertRaises(AssertionError):self.selected({"VIBETRAM_TEST_TMP":value})
+ def test_unc_devices_and_ambiguous_components_rejected(self):
+  for value in (r"\\server\share\root",r"\\?\D:\owned\root","D:/owned/NUL","D:/owned/COM1.txt","D:/owned/fixtures.","D:/owned/fixtures ","D:/owned/root:stream"):
+   with self.subTest(value=value),self.assertRaises(AssertionError):self.selected({"VIBETRAM_TEST_TMP":value})
+ def test_invalid_values_rejected(self):
+  for value in (None,123,"D:/owned/"+chr(0),"D:/owned/%TMP%","D:/owned/$TMP","D:/owned/~root","D:/owned/"+"x"*1024):
+   with self.subTest(value=str(value)[:24]),self.assertRaises(AssertionError):self.selected({"VIBETRAM_TEST_TMP":value})
+ def test_root_file_rejected(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_NOT_REGULAR_DIRECTORY"):self.selected(self.explicit,"file")
+ def test_leaf_reparse(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_NOT_REGULAR_DIRECTORY"):self.selected(self.explicit,"reparse")
+ def test_ancestor_reparse(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_NOT_REGULAR_DIRECTORY"):self.selected(self.explicit,"ancestor-reparse")
+ def test_denial(self):
+  with self.assertRaises(PermissionError):self.selected(self.explicit,"denied")
+ def test_missing_root(self):
+  with self.assertRaises(FileNotFoundError):self.selected(self.explicit,"missing")
+ def test_identity_replacement(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_IDENTITY_CHANGED"):self.selected(self.explicit,"replacement",True)
+ def test_directory_growth_not_identity_change(self):self.selected(self.explicit,mutate=True)
+ def test_cleanup_failure_fatal(self):
+  with self.assertRaisesRegex(AssertionError,"FIXTURE_ROOT_HANDLE_CLOSE_FAILED"):self.selected(self.explicit,"close-false")
+ def test_body_failure_kept_with_cleanup_note(self):
+  a=self.api("close-false")
+  with self.assertRaisesRegex(RuntimeError,"SYNTHETIC_BODY") as caught:
+   with admitted_test_root(self.explicit,a):raise RuntimeError("SYNTHETIC_BODY")
+  self.assertIn("FIXTURE_ROOT_HANDLE_CLOSE_FAILED",caught.exception.__notes__);self.assertEqual(set(a.opened),set(a.closed))
+ def test_real_hosted_branch_uses_same_admitted_local_scope(self):
+  import os
+  with admitted_test_root() as admitted:
+   env={"GITHUB_ACTIONS":"true","RUNNER_OS":"Windows","RUNNER_TEMP":str(admitted)}
+   with admitted_test_root(env) as root:self.assertEqual(root,admitted)
 
 if __name__=="__main__":unittest.main()
