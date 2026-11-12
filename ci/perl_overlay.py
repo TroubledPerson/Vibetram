@@ -1,5 +1,5 @@
 """Pinned pure-Perl build-tool overlay in a single ephemeral job; never system install."""
-import pathlib,hashlib,tarfile,io,re,json,urllib.request,os,sys
+import pathlib,hashlib,tarfile,io,re,json,urllib.request,os,sys,time
 from perl_prerequisites import imports,module_set,program,parse
 ARCHIVE_SHA="b009ff51f4fb108d19961a523e99b4373ccf958d37ca35bf1583215908dca9a9"
 MODULE_SHA="bc8d1474d8c70a284b898c5bfa7ec1b0246427571d9d9404af8908c94ac67b62"
@@ -782,11 +782,22 @@ def configured_tool_fields(fields,cargo_commands=False):
 def _recipe_word(value):
  return bool(re.fullmatch(r"[A-Za-z0-9_./=,+:-]+",value) or re.fullmatch(r'-D(?:OPENSSLDIR|ENGINESDIR|MODULESDIR)=\"/[A-Za-z0-9_./+-]+\"',value))
 
-def cargo_recipe_arguments(output,target,source,generator_required=None):
+def targeted_dependency_sequence(output,target,stage):
+ assert stage in ("dryrun","executed"),"TARGETED_RECIPE_STAGE"
+ assert isinstance(output,str) and len(output.encode())<=32768 and len(output.splitlines())<=128,"TARGETED_RECIPE_BOUND"
+ if target!="crypto/libcrypto-lib-ctype.o":return output
+ dep="crypto/libcrypto-lib-ctype.d";lines=[x.strip() for x in output.splitlines() if x.strip()]
+ tail=["touch "+dep+".tmp","if cmp "+dep+".tmp "+dep+" > /dev/null 2> /dev/null; then "+chr(92),"rm -f "+dep+".tmp; "+chr(92),"else "+chr(92),"mv "+dep+".tmp "+dep+"; "+chr(92),"fi"]
+ if stage=="dryrun":assert len(lines)==7 and lines[1:]==tail,"TARGETED_DEPENDENCY_SEQUENCE"
+ else:assert len(lines)==1,"TARGETED_SILENT_DEPENDENCY_OUTPUT"
+ return lines[0]
+
+def cargo_recipe_arguments(output,target,source,generator_required=None,recipe_stage=None):
  import shlex
  from ndk_compilers import PATHS
  allowed={"crypto/libcrypto-lib-ctype.o":"crypto/ctype.c","crypto/aes/libcrypto-lib-aes-sha1-armv8.o":"crypto/aes/aes-sha1-armv8.S"}
  assert allowed.get(target)==source,"TARGETED_OBJECT_SCOPE"
+ if recipe_stage is not None:output=targeted_dependency_sequence(output,target,recipe_stage)
  assert isinstance(output,str) and len(output.encode())<=32768,"TARGETED_RECIPE_BOUND"
  lines=[line.strip() for line in output.splitlines() if line.strip()];assert len(lines)<=128,"TARGETED_RECIPE_LINES"
  encoded=openssl_shell_tool("CC",str(PATHS["clang.exe"]));compiler=[];generators=[]
@@ -799,6 +810,9 @@ def cargo_recipe_arguments(output,target,source,generator_required=None):
    assert args.count("-c")==1 and args.count("-o")==1 and args[args.index("-o")+1]==target and args[-1]==source,"TARGETED_RECIPE_IDENTITY"
    assert "--target=aarch64-linux-android29" in args and all(_recipe_word(x) for x in args[1:]),"TARGETED_UNEXPECTED_SHELL_SYNTAX"
    assert not any(x.startswith("/") or x.startswith("-I/") for x in args[1:]),"TARGETED_NATIVE_INPUT_PATH"
+   if recipe_stage is not None and target=="crypto/libcrypto-lib-ctype.o":
+    dep="crypto/libcrypto-lib-ctype.d.tmp"
+    assert args.count("-MMD")==1 and args.count("-MF")==1 and args[args.index("-MF")+1]==dep and not any(x.startswith("-MF") and x!="-MF" for x in args),"TARGETED_DEPENDENCY_COMPILER_OUTPUT"
    compiler.append(args)
   elif args[0]=="CC="+encoded:
    assert len(args)>=5 and target=="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" and args[1]=="perl.exe","TARGETED_GENERATOR_ROLE"
@@ -813,7 +827,7 @@ def cargo_recipe_arguments(output,target,source,generator_required=None):
  if generator_required is not None:assert type(generator_required) is bool and len(generators)==int(generator_required),"TARGETED_GENERATOR_COUNT"
  return compiler[0]
 
-def command_evidence(output,target,work):
+def command_evidence(output,target,work,recipe_stage=None):
  import shlex
  allowed={"crypto/libcrypto-lib-ctype.o","crypto/aes/libcrypto-lib-aes-sha1-armv8.o"}
  assert target in allowed and isinstance(output,str),"COMMAND_EVIDENCE_SCOPE"
@@ -833,6 +847,9 @@ def command_evidence(output,target,work):
   normalized=re.sub(re.escape(prefix)+r"(?=$|[\\/\"'])",lambda _:marker,normalized)
  if re.search(r"(?i)(?:[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|AUTHORIZATION|API_KEY)[A-Z0-9_]*)\s*=",normalized) or re.search(r"(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}",normalized):return {**row,"state":"COMMAND_PRIVATE_FIELD_FATAL"}
  if re.search(r"[A-Za-z]:|\\\\|://",normalized) or any(x in normalized for x in ("$",chr(96),"\x00")):return {**row,"state":"COMMAND_UNAPPROVED_PATH_FATAL"}
+ if recipe_stage is not None:
+  try:normalized=targeted_dependency_sequence(normalized,target,recipe_stage)
+  except (AssertionError,IndexError):return {**row,"state":"COMMAND_DEPENDENCY_SEQUENCE_FATAL"}
  for line_index,line in enumerate(normalized.splitlines(),1):
   if not line.strip():continue
   try:tokens=shlex.split(line,posix=True)
@@ -856,10 +873,10 @@ def put_command_evidence(out,stage,target,row):
 
 def validated_command_evidence(out,stage,output,target,source,work,generator_required):
  assert stage in ("dryrun","executed"),"COMMAND_STAGE"
- evidence=command_evidence(output,target,work);put_command_evidence(out,stage,target,evidence)
+ evidence=command_evidence(output,target,work,stage);put_command_evidence(out,stage,target,evidence)
  try:
   assert evidence["completeForQualification"],"COMMAND_EVIDENCE_INCOMPLETE"
-  return cargo_recipe_arguments(output,target,source,generator_required)
+  return cargo_recipe_arguments(output,target,source,generator_required,stage)
  except BaseException as error:
   code=error.args[0] if error.args and isinstance(error.args[0],str) and re.fullmatch(r"[A-Z_0-9]{1,80}",error.args[0]) else "COMMAND_VALIDATION_FAILED"
   failure={"state":"COMMAND_VALIDATION_FAILED_FATAL","target":target,"inputSHA256":evidence["inputSHA256"],"errorClass":type(error).__name__[:64],"code":code,"errno":getattr(error,"errno",None) if type(getattr(error,"errno",None)) is int else None,"winerror":getattr(error,"winerror",None) if type(getattr(error,"winerror",None)) is int else None,"partialBuildAccepted":False}
@@ -868,8 +885,74 @@ def validated_command_evidence(out,stage,output,target,source,work,generator_req
   raise
 
 
+OPENSSL_TEMPLATE_SHA256="cc02bca6ac2c5a32c89661d391bc1c610116fa2c98f7a202a41056c05a25f8b8"
+OPENSSL_TEMPLATE_BYTES=85121
+
+class TemplateInputAPI:
+ def __init__(self):
+  import ctypes
+  from ndk_input_metadata import API
+  self.ctypes=ctypes;self.meta=API();self.k=self.meta.k;w=self.meta.w
+  self.k.ReadFile.argtypes=[w.HANDLE,ctypes.c_void_p,w.DWORD,ctypes.POINTER(w.DWORD),ctypes.c_void_p];self.k.ReadFile.restype=w.BOOL
+ def open(self,path,read=False):
+  h=self.k.CreateFileW(str(path),0x80000000 if read else 0,1,None,3,0x02200000,None)
+  if h==self.ctypes.c_void_p(-1).value:raise self.ctypes.WinError(self.ctypes.get_last_error())
+  return h
+ def info(self,h):return self.meta.info(h)
+ def read(self,h,limit):
+  parts=[];total=0
+  while total<limit:
+   b=self.ctypes.create_string_buffer(min(65536,limit-total));n=self.meta.w.DWORD()
+   if not self.k.ReadFile(h,b,len(b),self.ctypes.byref(n),None):raise self.ctypes.WinError(self.ctypes.get_last_error())
+   if not n.value:break
+   total+=n.value;parts.append(b.raw[:n.value])
+  return b"".join(parts)
+ def close(self,h):return bool(self.k.CloseHandle(h))
+
+def qualify_openssl_template(src,resource_check=lambda:None,api=None,clock=time.monotonic):
+ src=pathlib.Path(src);assert src.is_absolute() and ".." not in src.parts,"TEMPLATE_SOURCE_SCOPE"
+ path=src/"Configurations/unix-Makefile.tmpl";assert len(path.parts)<=24,"TEMPLATE_PATH_DEPTH"
+ assert 0<OPENSSL_TEMPLATE_BYTES<=262144,"TEMPLATE_SIZE_BOUND"
+ api=api or TemplateInputAPI();held=[];primary=None;started=clock()
+ def tick():
+  resource_check();assert clock()-started<5,"TEMPLATE_METADATA_DEADLINE"
+ def opened(p,read=False):
+  tick();h=api.open(p,read=read);held.append(h);return h
+ def checked(h,directory):
+  tick();r=api.info(h)
+  assert r["tag"]==0 and not r["attributes"]&0x400,"TEMPLATE_REPARSE"
+  assert bool(r["attributes"]&0x10)==directory,"TEMPLATE_COMPONENT_TYPE"
+  return r
+ def stable(a,b,directory):
+  assert all(a[k]==b[k] for k in ("identity","attributes","tag")),"TEMPLATE_IDENTITY_CHANGED"
+  if not directory:assert a["bytes"]==b["bytes"]==OPENSSL_TEMPLATE_BYTES,"TEMPLATE_SIZE_CHANGED"
+ try:
+  chain=[];part=pathlib.Path(path.anchor)
+  for i,name in enumerate(path.parts):
+   if i:part=part/name
+   h=opened(part);directory=i<len(path.parts)-1;r=checked(h,directory)
+   chain.append((part,h,r,directory))
+  leaf=chain[-1][2];assert leaf["bytes"]==OPENSSL_TEMPLATE_BYTES,"TEMPLATE_SIZE_MISMATCH"
+  reader=opened(path,True);stable(leaf,checked(reader,False),False)
+  data=api.read(reader,OPENSSL_TEMPLATE_BYTES+1);tick()
+  assert len(data)==OPENSSL_TEMPLATE_BYTES and hashlib.sha256(data).hexdigest()==OPENSSL_TEMPLATE_SHA256,"TEMPLATE_HASH_MISMATCH"
+  stable(leaf,checked(reader,False),False)
+  for part,h,before,directory in chain:
+   stable(before,checked(h,directory),directory)
+   fresh=opened(part);stable(before,checked(fresh,directory),directory)
+  return {"sha256":OPENSSL_TEMPLATE_SHA256,"bytes":OPENSSL_TEMPLATE_BYTES,"fileIdentity":leaf["identity"],"ancestorIdentities":[x[2]["identity"] for x in chain[:-1]],"noFollowRegularChain":True}
+ except BaseException as e:primary=e;raise
+ finally:
+  failed=False
+  for h in reversed(held):
+   try:failed=not api.close(h) or failed
+   except BaseException:failed=True
+  if failed:
+   if primary is not None:primary.add_note("TEMPLATE_HANDLE_CLOSE_FAILED")
+   else:raise AssertionError("TEMPLATE_HANDLE_CLOSE_FAILED")
+
 def qualify_cargo_objects(guard,env,work,out,src,perl,configuration):
- from openssl_probe import PHYSICAL_SDK,CHECKSUM
+ from openssl_probe import PHYSICAL_SDK,CHECKSUM,PREFIX
  from perl_path_probe import MAKE_SHA,MAKE_BYTES
  from build_guard import executable_snapshot
  ndk=PHYSICAL_SDK/"ndk/30.0.16248370";tools=ndk/"toolchains/llvm/prebuilt/windows-x86_64/bin"
@@ -881,17 +964,25 @@ def qualify_cargo_objects(guard,env,work,out,src,perl,configuration):
   assert row["sha256"]==digest and (size is None or row["bytes"]==size),"TARGETED_TOOL_PIN"
  makefile=src/"Makefile";before=hashlib.sha256(makefile.read_bytes()).hexdigest()
  assert before==configuration["files"]["Makefile"]["sha256"],"TARGETED_MAKEFILE_CHANGED"
+ assert src==work/"crate"/PREFIX/"openssl","TARGETED_TEMPLATE_SOURCE_SCOPE"
+ template_binding=qualify_openssl_template(src,guard._resource_sample)
+ def verify_template():assert qualify_openssl_template(src,guard._resource_sample)==template_binding,"TARGETED_TEMPLATE_CHANGED"
  guard.run([make,"-f","Makefile","-j1","include/openssl/opensslv.h"],cwd=src,env=cross,capture=True,timeout=60)
+ verify_template()
  rows=[]
  for target,source in (("crypto/libcrypto-lib-ctype.o","crypto/ctype.c"),("crypto/aes/libcrypto-lib-aes-sha1-armv8.o","crypto/aes/aes-sha1-armv8.S")):
   obj=src/target;assert not obj.exists(),"TARGETED_EXISTING_OBJECT"
   initial=smoke_artifact_identity(src/source) if (src/source).is_file() else None
+  verify_template()
   dry=guard.run([make,"-f","Makefile","--dry-run","-j1",target],cwd=src,env=cross,capture=True,timeout=30)
+  verify_template()
   generator_required=target=="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" and initial is None
   generator=src/"crypto/aes/asm/aes-sha1-armv8.pl"
   generator_identity=smoke_artifact_identity(generator) if target=="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" else None
   args=validated_command_evidence(out,"dryrun",dry.stdout,target,source,work,generator_required)
+  verify_template()
   done=guard.run([make,"-f","Makefile","-j1",target],cwd=src,env=cross,capture=True,timeout=90)
+  verify_template()
   assert validated_command_evidence(out,"executed",done.stdout,target,source,work,generator_required)==args,"TARGETED_EXECUTED_RECIPE_CHANGED"
   if generator_identity is not None:assert smoke_artifact_identity(generator)==generator_identity,"TARGETED_GENERATOR_CHANGED"
   meta=smoke_artifact_identity(obj);assert 64<=meta["bytes"]<=2*1024**2,"TARGETED_OBJECT_SIZE"
@@ -901,7 +992,7 @@ def qualify_cargo_objects(guard,env,work,out,src,perl,configuration):
   assert hashlib.sha256(makefile.read_bytes()).hexdigest()==before,"TARGETED_MAKEFILE_CHANGED"
   row={"target":target,"source":source,"compilerArgv":args,"object":meta,"sourceIdentity":source_meta,"generatedSource":initial is None,"ELF64":True,"machine":"AArch64","type":"REL","executed":False}
   put_command_evidence(out,"object",target,{"state":"ONE_OBJECT_VALIDATED_NOT_OVERALL_PASS",**row});rows.append(row)
- report={"state":"PASS_CARGO_EQUIVALENT_OPENSSL_TWO_OBJECTS","objects":rows,"configureCompilerFields":configuration["makefileFields"],"sourceArchiveSHA256":CHECKSUM,"makefileSHA256":before,"makeSHA256":MAKE_SHA,"shellSHA256":"5490d0da5e7cf9d92068cc48fcc590f2bcf8564add8ff91c3b5fe541eb2d72e3","perlSHA256":GIT_PERL_SHA,"maximumObjects":2,"makeWorkers":1,"fullAndroidBuild":False,"rustProvisioning":False,"signed":False,"releasable":False,"monitor":guard.report()}
+ report={"state":"PASS_CARGO_EQUIVALENT_OPENSSL_TWO_OBJECTS","templateInputBinding":template_binding,"objects":rows,"configureCompilerFields":configuration["makefileFields"],"sourceArchiveSHA256":CHECKSUM,"makefileSHA256":before,"makeSHA256":MAKE_SHA,"shellSHA256":"5490d0da5e7cf9d92068cc48fcc590f2bcf8564add8ff91c3b5fe541eb2d72e3","perlSHA256":GIT_PERL_SHA,"maximumObjects":2,"makeWorkers":1,"fullAndroidBuild":False,"rustProvisioning":False,"signed":False,"releasable":False,"monitor":guard.report()}
  (out/"cargo-command-qualification.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8");print(json.dumps(report,indent=2),flush=True)
  return report
 

@@ -1,4 +1,4 @@
-import unittest,io,tarfile,hashlib
+import unittest,io,tarfile,hashlib,pathlib
 from unittest.mock import patch
 from perl_overlay import review,parse_overlay_path,focused_program,MODULE_SHA
 class Overlay(unittest.TestCase):
@@ -617,7 +617,7 @@ class IntegratedCommandEvidence(unittest.TestCase):
   self.assertFalse(initial["completeForQualification"]);self.assertFalse(failure["partialBuildAccepted"]);self.assertEqual(failure["code"],"COMMAND_EVIDENCE_INCOMPLETE")
  def test_parser_failure_retains_safe_complete_input(self):
   from perl_overlay import validated_command_evidence
-  cc,t,s=self.recipe();out,values=self.store()
+  cc,t,s=self.recipe();cc=stage_recipe(cc);out,values=self.store()
   with self.assertRaises(AssertionError):validated_command_evidence(out,"dryrun",cc.replace(" -c "," -c -c "),t,s,self.work(),False)
   self.assertTrue(json.loads(values["command-ctype-dryrun.json"])["completeForQualification"]);self.assertEqual(json.loads(values["command-ctype-dryrun-failure.json"])["code"],"TARGETED_RECIPE_IDENTITY")
  def test_receipt_denial_stops_without_fallback(self):
@@ -628,7 +628,7 @@ class IntegratedCommandEvidence(unittest.TestCase):
  def test_error_codes_preserved_without_arbitrary_exception_text(self):
   import perl_overlay as p
   from unittest.mock import patch
-  cc,t,s=self.recipe();out,values=self.store();err=OSError(5,"synthetic-private-message");err.winerror=32
+  cc,t,s=self.recipe();cc=stage_recipe(cc);out,values=self.store();err=OSError(5,"synthetic-private-message");err.winerror=32
   with patch("perl_overlay.cargo_recipe_arguments",side_effect=err),self.assertRaises(OSError):p.validated_command_evidence(out,"dryrun",cc,t,s,self.work(),False)
   failure=json.loads(values["command-ctype-dryrun-failure.json"]);self.assertEqual(failure["errno"],5);self.assertEqual(failure["winerror"],32);self.assertNotIn("synthetic-private-message",json.dumps(failure))
  def test_receipt_scope_and_size_fail_closed(self):
@@ -712,5 +712,162 @@ class StructuralCommandEvidence(unittest.TestCase):
 
     def test_empty_quoted_head_is_fatal(self):
         self.assertEqual(self.unknown("'' private")['commandShape']['head'], 'other')
+
+
+class TargetBoundDependencySequence(unittest.TestCase):
+ def setUp(self):
+  import perl_overlay as p
+  self.p=p;f=IntegratedCommandEvidence();self.cc,self.target,self.source=f.recipe();self.work=f.work()
+  self.dep="crypto/libcrypto-lib-ctype.d"
+  self.cc=self.cc.replace(" -c "," -MMD -MF "+self.dep+".tmp -c ")
+  self.tail=["touch "+self.dep+".tmp","if cmp "+self.dep+".tmp "+self.dep+" > /dev/null 2> /dev/null; then "+chr(92),"rm -f "+self.dep+".tmp; "+chr(92),"else "+chr(92),"mv "+self.dep+".tmp "+self.dep+"; "+chr(92),"fi"]
+  self.dry="\n".join([self.cc]+self.tail)
+ def parse(self,text=None,stage="dryrun"):
+  return self.p.cargo_recipe_arguments(self.dry if text is None else text,self.target,self.source,False,stage)
+ def rejected(self,text,stage="dryrun"):
+  with self.assertRaises(AssertionError):self.parse(text,stage)
+  r=self.p.command_evidence(text,self.target,self.work,stage);self.assertFalse(r["completeForQualification"]);self.assertNotIn("normalizedCommandText",r)
+ def test_exact_sequence(self):self.assertEqual(self.parse(),self.parse(self.cc,"executed"))
+ def test_evidence_normalizes_complete_selected_sequence(self):
+  r=self.p.command_evidence(self.dry,self.target,self.work,"dryrun");self.assertTrue(r["completeForQualification"]);self.assertNotIn("touch",r["normalizedCommandText"])
+ def test_hash_proven_touch_line(self):
+  import hashlib
+  self.assertEqual(hashlib.sha256(self.tail[0].encode()).hexdigest(),"23433cb6db792feb76c7a05baf1e2dea1f1ad3666df8d8f48d9714daf742e585")
+ def test_missing_touch(self):self.rejected("\n".join([self.cc]+self.tail[1:]))
+ def test_touch_alone_not_allowed(self):self.rejected(self.cc+"\n"+self.tail[0])
+ def test_wrong_target(self):self.rejected(self.dry.replace(self.dep,"crypto/other.d"))
+ def test_outside_path(self):self.rejected(self.dry.replace(self.dep,"/outside/private"))
+ def test_parent_escape(self):self.rejected(self.dry.replace(self.dep,"crypto/../outside"))
+ def test_extra_command(self):self.rejected(self.dry+"\necho private")
+ def test_reordered_block(self):self.rejected("\n".join([self.cc]+self.tail[::-1]))
+ def test_duplicate_block(self):self.rejected(self.dry+"\n"+"\n".join(self.tail))
+ def test_wrong_cmp_redirection(self):self.rejected(self.dry.replace("2> /dev/null","2> /outside/private"))
+ def test_missing_backslash(self):self.rejected(self.dry.replace(chr(92),"",1))
+ def test_changed_remove_flags(self):self.rejected(self.dry.replace("rm -f ","rm -rf "))
+ def test_changed_rename_target(self):self.rejected(self.dry.replace("mv "+self.dep+".tmp "+self.dep,"mv "+self.dep+".tmp crypto/unrelated.d"))
+ def test_executed_silent_output(self):self.assertTrue(self.p.command_evidence(self.cc,self.target,self.work,"executed")["completeForQualification"])
+ def test_executed_echoed_block_fatal(self):self.rejected(self.dry,"executed")
+ def test_unknown_compiler_fatal(self):self.rejected(self.dry.replace("clang.exe","unexpected.exe"))
+ def test_wrong_compiler_dep_destination(self):
+  with self.assertRaisesRegex(AssertionError,"TARGETED_DEPENDENCY_COMPILER_OUTPUT"):self.parse(self.dry.replace("-MF "+self.dep+".tmp","-MF crypto/other.d.tmp"))
+ def test_duplicate_dependency_flags(self):
+  with self.assertRaisesRegex(AssertionError,"TARGETED_DEPENDENCY_COMPILER_OUTPUT"):self.parse(self.dry.replace("-MMD","-MMD -MMD"))
+ def test_stage_required_enum(self):
+  with self.assertRaises(AssertionError):self.parse(stage="other")
+ def test_assembly_still_rejects_maintenance(self):
+  cc,t,source=IntegratedCommandEvidence().recipe(True)
+  with self.assertRaises(AssertionError):self.p.cargo_recipe_arguments(cc+"\n"+self.tail[0],t,source,False,"dryrun")
+ def test_crlf_and_recipe_indentation(self):self.assertEqual(self.parse(),self.parse("\r\n".join("\t"+x for x in [self.cc]+self.tail)))
+ def test_unknown_text_withheld(self):
+  r=self.p.command_evidence(self.dry+"\nowner-private-value",self.target,self.work,"dryrun");self.assertNotIn("owner-private-value",json.dumps(r))
+ def test_default_classifier_still_rejects_maintenance(self):self.assertFalse(self.p.command_evidence(self.dry,self.target,self.work)["completeForQualification"])
+
+
+def stage_recipe(cc):
+ dep="crypto/libcrypto-lib-ctype.d"
+ cc=cc.replace(" -c "," -MMD -MF "+dep+".tmp -c ")
+ return "\n".join([cc,"touch "+dep+".tmp","if cmp "+dep+".tmp "+dep+" > /dev/null 2> /dev/null; then "+chr(92),"rm -f "+dep+".tmp; "+chr(92),"else "+chr(92),"mv "+dep+".tmp "+dep+"; "+chr(92),"fi"])
+
+class TemplateAndStageIntegration(unittest.TestCase):
+ def setUp(self):
+  import perl_overlay as p
+  from unittest.mock import patch
+  self.p=p;self.payload=b"bounded-template-fixture";self.patches=[patch.object(p,"OPENSSL_TEMPLATE_BYTES",len(self.payload)),patch.object(p,"OPENSSL_TEMPLATE_SHA256",hashlib.sha256(self.payload).hexdigest())]
+  for x in self.patches:x.start()
+  self.addCleanup(lambda:[x.stop() for x in reversed(self.patches)])
+  self.src=pathlib.Path("D:/owned/crate/openssl")
+ def api(self,mode=None):
+  payload=self.payload
+  class Fake:
+   def __init__(self):self.handles={};self.opened=[];self.closed=[];self.done=False;self.ids={}
+   def open(self,path,read=False):
+    if mode=="missing" and path.name=="unix-Makefile.tmpl":raise FileNotFoundError(2,"synthetic")
+    if mode=="denied":raise PermissionError(13,"synthetic")
+    key=str(path);self.ids.setdefault(key,len(self.ids)+1);h=len(self.opened)+1;self.handles[h]=path;self.opened.append(h);return h
+   def info(self,h):
+    path=self.handles[h];leaf=path.name=="unix-Makefile.tmpl";index=self.ids[str(path)]
+    r={"identity":[1,index,0],"attributes":0x80 if leaf else 0x10,"tag":0,"bytes":len(payload) if leaf else 64}
+    if mode=="reparse" and leaf or mode=="ancestor-reparse" and not leaf:r.update(attributes=r["attributes"]|0x400,tag=0xA000000C)
+    if mode=="leaf-directory" and leaf:r["attributes"]=0x10
+    if mode=="ancestor-file" and not leaf:r["attributes"]=0x80
+    if mode=="wrong-size" and leaf:r["bytes"]+=1
+    if self.done and (mode=="replacement" and leaf or mode=="ancestor-change" and not leaf):r["identity"]=[1,index+100,0]
+    if self.done and mode=="directory-growth" and not leaf:r["bytes"]+=4096
+    return r
+   def read(self,h,limit):
+    self.done=True
+    if mode=="read-denied":raise PermissionError(13,"synthetic")
+    return b"x"*len(payload) if mode=="wrong-hash" else payload+b"x" if mode=="long-read" else payload
+   def close(self,h):
+    self.closed.append(h)
+    if mode=="close-exception" and len(self.closed)==1:raise OSError(5,"synthetic")
+    return mode!="close-false"
+  return Fake()
+ def check(self,mode=None):
+  a=self.api(mode)
+  try:return self.p.qualify_openssl_template(self.src,api=a)
+  finally:self.assertEqual(set(a.opened),set(a.closed))
+ def test_exact_file_and_ancestors(self):self.assertTrue(self.check()["noFollowRegularChain"])
+ def test_missing(self):
+  with self.assertRaises(FileNotFoundError):self.check("missing")
+ def test_denial(self):
+  with self.assertRaises(PermissionError):self.check("denied")
+ def test_wrong_hash(self):
+  with self.assertRaisesRegex(AssertionError,"TEMPLATE_HASH_MISMATCH"):self.check("wrong-hash")
+ def test_wrong_size(self):
+  with self.assertRaisesRegex(AssertionError,"TEMPLATE_SIZE_MISMATCH"):self.check("wrong-size")
+ def test_replacement(self):
+  with self.assertRaisesRegex(AssertionError,"TEMPLATE_IDENTITY_CHANGED"):self.check("replacement")
+ def test_ancestor_identity(self):
+  with self.assertRaisesRegex(AssertionError,"TEMPLATE_IDENTITY_CHANGED"):self.check("ancestor-change")
+ def test_leaf_reparse(self):
+  with self.assertRaisesRegex(AssertionError,"TEMPLATE_REPARSE"):self.check("reparse")
+ def test_ancestor_reparse(self):
+  with self.assertRaisesRegex(AssertionError,"TEMPLATE_REPARSE"):self.check("ancestor-reparse")
+ def test_wrong_component_type(self):
+  for mode in ("leaf-directory","ancestor-file"):
+   with self.subTest(mode=mode),self.assertRaisesRegex(AssertionError,"TEMPLATE_COMPONENT_TYPE"):self.check(mode)
+ def test_directory_allocation_not_identity(self):self.assertTrue(self.check("directory-growth")["noFollowRegularChain"])
+ def test_read_denial_closes_all(self):
+  with self.assertRaises(PermissionError):self.check("read-denied")
+ def test_read_size_overrun(self):
+  with self.assertRaisesRegex(AssertionError,"TEMPLATE_HASH_MISMATCH"):self.check("long-read")
+ def test_close_failure(self):
+  for mode in ("close-false","close-exception"):
+   with self.subTest(mode=mode),self.assertRaisesRegex(AssertionError,"TEMPLATE_HANDLE_CLOSE_FAILED"):self.check(mode)
+ def test_metadata_deadline(self):
+  a=self.api();ticks=iter([0,6])
+  with self.assertRaisesRegex(AssertionError,"TEMPLATE_METADATA_DEADLINE"):self.p.qualify_openssl_template(self.src,api=a,clock=lambda:next(ticks))
+  self.assertEqual(a.opened,a.closed)
+ def test_scope(self):
+  with self.assertRaisesRegex(AssertionError,"TEMPLATE_SOURCE_SCOPE"):self.p.qualify_openssl_template(pathlib.Path("relative"),api=self.api())
+ def test_explicit_wrapper_stages(self):
+  f=IntegratedCommandEvidence();cc,t,source=f.recipe();dry=stage_recipe(cc);out,_=f.store()
+  argv=self.p.validated_command_evidence(out,"dryrun",dry,t,source,f.work(),False)
+  cc=dry.splitlines()[0];out,_=f.store()
+  self.assertEqual(argv,self.p.validated_command_evidence(out,"executed",cc,t,source,f.work(),False))
+ def test_wrong_stage(self):
+  f=IntegratedCommandEvidence();cc,t,source=f.recipe();out,_=f.store()
+  with self.assertRaisesRegex(AssertionError,"COMMAND_STAGE"):self.p.validated_command_evidence(out,"other",cc,t,source,f.work(),False)
+ def test_executed_maintenance_remains_fatal(self):
+  f=IntegratedCommandEvidence();cc,t,source=f.recipe();out,values=f.store()
+  with self.assertRaisesRegex(AssertionError,"COMMAND_EVIDENCE_INCOMPLETE"):self.p.validated_command_evidence(out,"executed",stage_recipe(cc),t,source,f.work(),False)
+  self.assertFalse(json.loads(values["command-ctype-executed-failure.json"])["partialBuildAccepted"])
+ def test_wiring_and_template_checks(self):
+  import inspect
+  text=inspect.getsource(self.p.validated_command_evidence)
+  self.assertIn("command_evidence(output,target,work,stage)",text);self.assertIn("cargo_recipe_arguments(output,target,source,generator_required,stage)",text)
+  text=inspect.getsource(self.p.qualify_cargo_objects);self.assertGreaterEqual(text.count("verify_template()"),5);self.assertIn("TARGETED_TEMPLATE_SOURCE_SCOPE",text)
+ def test_real_windows_held_read(self):
+  import os
+  if os.name!="nt":self.skipTest("Windows only")
+  root=pathlib.Path(os.environ["VIBETRAM_TEST_TMP"])/"template-real";(root/"Configurations").mkdir(parents=True)
+  file=root/"Configurations/unix-Makefile.tmpl";file.write_bytes(self.payload)
+  result=self.p.qualify_openssl_template(root);self.assertEqual(result["sha256"],hashlib.sha256(self.payload).hexdigest())
+  api=self.p.TemplateInputAPI();h=api.open(file,True)
+  try:
+   with self.assertRaises(OSError):file.write_bytes(b"change")
+  finally:self.assertTrue(api.close(h))
+  self.assertEqual(file.read_bytes(),self.payload)
 
 if __name__=="__main__":unittest.main()
