@@ -833,11 +833,15 @@ def command_evidence(output,target,work):
   normalized=re.sub(re.escape(prefix)+r"(?=$|[\\/\"'])",lambda _:marker,normalized)
  if re.search(r"(?i)(?:[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|AUTHORIZATION|API_KEY)[A-Z0-9_]*)\s*=",normalized) or re.search(r"(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}",normalized):return {**row,"state":"COMMAND_PRIVATE_FIELD_FATAL"}
  if re.search(r"[A-Za-z]:|\\\\|://",normalized) or any(x in normalized for x in ("$",chr(96),"\x00")):return {**row,"state":"COMMAND_UNAPPROVED_PATH_FATAL"}
- for line in normalized.splitlines():
+ for line_index,line in enumerate(normalized.splitlines(),1):
   if not line.strip():continue
   try:tokens=shlex.split(line,posix=True)
   except ValueError:return {**row,"state":"COMMAND_QUOTING_FATAL"}
-  if not tokens or not (tokens[0]=="<ndk>/clang.exe" or tokens[0].startswith("CC=") and len(tokens)>1 and tokens[1]=="perl.exe"):return {**row,"state":"COMMAND_UNCLASSIFIED_FATAL"}
+  if not tokens or not (tokens[0]=="<ndk>/clang.exe" or tokens[0].startswith("CC=") and len(tokens)>1 and tokens[1]=="perl.exe"):
+   # Diagnostic categories are fixed labels, never unknown token contents.
+   known={"perl.exe":"perl","make.exe":"make","echo":"echo"}
+   shape={"head":known.get(tokens[0],"other") if tokens else "empty","arguments":["option" if token.startswith("-") else "assignment" if "=" in token else "value" for token in tokens[1:17]],"omittedArguments":max(0,len(tokens)-17)}
+   return {**row,"state":"COMMAND_UNCLASSIFIED_FATAL","rejectedLineIndex":line_index,"tokenCount":len(tokens),"lineSHA256":hashlib.sha256(line.encode("utf-8")).hexdigest(),"commandShape":shape}
   for token in tokens:
    if token in ("-DOPENSSLDIR=\"/usr/local/ssl\"","-DOPENSSLDIR='/usr/local/ssl'"):continue
    value=token.split("=",1)[-1].strip("'\"")

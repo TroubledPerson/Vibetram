@@ -643,4 +643,74 @@ class IntegratedCommandEvidence(unittest.TestCase):
   self.assertIn('validated_command_evidence(out,"dryrun"',text);self.assertIn('validated_command_evidence(out,"executed"',text);self.assertIn('put_command_evidence(out,"object"',text);self.assertIn('TARGETED_GENERATOR_CHANGED',text)
   text=inspect.getsource(p.validated_command_evidence);self.assertLess(text.index("put_command_evidence(out,stage"),text.index("return cargo_recipe_arguments"))
 
+class StructuralCommandEvidence(unittest.TestCase):
+
+    def setUp(self):
+        from perl_overlay import command_evidence
+        self.evidence = command_evidence
+        fixture = IntegratedCommandEvidence()
+        self.cc, self.target, _ = fixture.recipe()
+        self.work = fixture.work()
+
+    def unknown(self, text):
+        r = self.evidence(text, self.target, self.work)
+        self.assertEqual(r['state'], 'COMMAND_UNCLASSIFIED_FATAL')
+        self.assertFalse(r['completeForQualification'])
+        self.assertNotIn('normalizedCommandText', r)
+        return r
+
+    def test_known_compiler_unchanged(self):
+        self.assertTrue(self.evidence(self.cc, self.target, self.work)['completeForQualification'])
+
+    def test_unknown_line_index(self):
+        r = self.unknown('\n' + self.cc + '\n\nunknown value')
+        self.assertEqual(r['rejectedLineIndex'], 4)
+        self.assertEqual(r['tokenCount'], 2)
+
+    def test_hash_exact_normalized_line(self):
+        self.assertEqual(self.unknown('unknown value')['lineSHA256'], hashlib.sha256(b'unknown value').hexdigest())
+
+    def test_arbitrary_text_not_retained(self):
+        r = self.unknown('owner-private-name confidential-value')
+        self.assertNotIn('owner-private-name', json.dumps(r))
+        self.assertNotIn('confidential-value', json.dumps(r))
+
+    def test_fixed_shape_labels_only(self):
+        r = self.unknown('perl.exe -I. arbitrary=value private')
+        self.assertEqual(r['commandShape'], {'head': 'perl', 'arguments': ['option', 'assignment', 'value'], 'omittedArguments': 0})
+
+    def test_shape_truncated(self):
+        r = self.unknown('unknown ' + ' '.join(['private'] * 100))
+        self.assertEqual(len(r['commandShape']['arguments']), 16)
+        self.assertEqual(r['commandShape']['omittedArguments'], 84)
+        self.assertLess(len(json.dumps(r)), 1200)
+
+    def test_outside_windows_withheld(self):
+        r = self.evidence('unknown C:/Users/private/file', self.target, self.work)
+        self.assertEqual(r['state'], 'COMMAND_UNAPPROVED_PATH_FATAL')
+        self.assertNotIn('commandShape', r)
+
+    def test_posix_private_unknown_not_retained(self):
+        self.assertNotIn('/private/owner/file', json.dumps(self.unknown('unknown /private/owner/file')))
+
+    def test_secret_before_classification(self):
+        r = self.evidence('unknown TOKEN=synthetic-secret', self.target, self.work)
+        self.assertEqual(r['state'], 'COMMAND_PRIVATE_FIELD_FATAL')
+        self.assertNotIn('synthetic-secret', json.dumps(r))
+
+    def test_unterminated_quotes_unchanged(self):
+        self.assertEqual(self.evidence("unknown 'private", self.target, self.work)['state'], 'COMMAND_QUOTING_FATAL')
+
+    def test_size_guard_unchanged(self):
+        self.assertEqual(self.evidence('x' * 32769, self.target, self.work)['state'], 'COMMAND_TEXT_SIZE_FATAL')
+
+    def test_unsafe_metacharacter_unchanged(self):
+        self.assertEqual(self.evidence('unknown $(private)', self.target, self.work)['state'], 'COMMAND_UNAPPROVED_PATH_FATAL')
+
+    def test_blank_and_valid_lines(self):
+        self.assertTrue(self.evidence('\n' + self.cc + '\n', self.target, self.work)['completeForQualification'])
+
+    def test_empty_quoted_head_is_fatal(self):
+        self.assertEqual(self.unknown("'' private")['commandShape']['head'], 'other')
+
 if __name__=="__main__":unittest.main()
