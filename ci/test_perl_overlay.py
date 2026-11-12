@@ -160,7 +160,7 @@ class ConfigureRuntimeQualification(unittest.TestCase):
  def test_configure_workflow_reuses_qualified_runtime(self):
   import pathlib
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());job=w["jobs"]["openssl-probe"]
-  self.assertEqual(job["permissions"],{"contents":"read"});self.assertEqual(job["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-configure");self.assertIn("[openssl-probe-191]",job["if"])
+  self.assertEqual(job["permissions"],{"contents":"read"});self.assertEqual(job["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-cargo-command");self.assertIn("[openssl-probe-191]",job["if"])
 
 
 class EndToEndConfiguration(unittest.TestCase):
@@ -421,5 +421,114 @@ class CargoPerlPathContract(unittest.TestCase):
   import pathlib
   e=self.env();r=build_android_environment(preserve_cargo_perl_paths(e),NDK,NDK/'toolchains/llvm/prebuilt/windows-x86_64/bin',pathlib.Path('C:/Program Files/Git/usr/bin/perl.exe'))
   self.assertEqual(r['MSYS2_ENV_CONV_EXCL'],'PERL5LIB=');self.assertEqual(r['PERL5LIB'],e['PERL5LIB']);self.assertNotIn('MSYS2_ENV_CONV_EXCL',e);self.assertTrue(r['CC_aarch64_linux_android'].endswith('clang.exe'))
+
+
+class OpenSSLShellCommandBoundary(unittest.TestCase):
+ def paths(self):
+  from ndk_compilers import PATHS
+  from ndk_linker import NDK
+  return {"CC":PATHS["clang.exe"],"CXX":PATHS["clang++.exe"],"AR":NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ar.exe","RANLIB":NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ranlib.exe"}
+ def test_exact_roles_shell_encoded_without_canonical_mutation(self):
+  from perl_overlay import openssl_shell_tool
+  for role,path in self.paths().items():
+   raw=str(path);self.assertEqual(openssl_shell_tool(role,raw),'"'+path.as_posix()+'"');self.assertEqual(str(path),raw)
+ def test_basename_standalone_qualification_is_unchanged(self):
+  from perl_overlay import openssl_shell_tool
+  for role,path in self.paths().items():self.assertEqual(openssl_shell_tool(role,path.name),path.name)
+ def test_quoted_or_alternate_input_not_a_canonical_identity(self):
+  from perl_overlay import openssl_shell_tool
+  p=self.paths()["CC"]
+  for v in ('"'+str(p)+'"',str(p).lower(),str(p).replace("Program Files (x86)","Android"),str(p).replace("30.0.16248370","30.0.0")):
+   with self.subTest(value=v),self.assertRaises(AssertionError):openssl_shell_tool("CC",v)
+ def test_command_arguments_and_metacharacters_are_not_accepted(self):
+  from perl_overlay import openssl_shell_tool
+  raw=str(self.paths()["CC"])
+  for suffix in (' -DNAME=x','; false',' && false','| false','\nfalse','$(false)',chr(96)+'false'+chr(96),'"'):
+   with self.subTest(suffix=suffix),self.assertRaises(AssertionError):openssl_shell_tool("CC",raw+suffix)
+ def test_swapped_compiler_or_unselected_clang_cl_is_rejected(self):
+  from perl_overlay import openssl_shell_tool
+  for role,value in (("CC",str(self.paths()["CXX"])),("CXX",str(self.paths()["CC"])),("CC",str(self.paths()["CC"].with_name("clang-cl.exe")))):
+   with self.subTest(role=role,value=value),self.assertRaises(AssertionError):openssl_shell_tool(role,value)
+ def test_unknown_roles_and_nonstring_inputs_are_rejected(self):
+  from perl_overlay import openssl_shell_tool
+  for role,value in (("HOST_CC","clang.exe"),("LD","ld.lld.exe"),("CC",None),("CC",self.paths()["CC"])):
+   with self.subTest(role=role,value=str(value)),self.assertRaises(AssertionError):openssl_shell_tool(role,value)
+ def test_bridge_checks_configure_scope_hash_target_and_prefix_before_encoding(self):
+  from perl_overlay import cargo_prefix_bridge_program
+  s=cargo_prefix_bridge_program()
+  self.assertLess(s.index('Configure identity changed'),s.index('my %shell_tools='))
+  self.assertLess(s.index('unexpected OpenSSL install scope'),s.index('my %shell_tools='))
+  self.assertIn('return unless grep {$_ eq "linux-aarch64"} @ARGV',s)
+  self.assertIn('Configure target tool mismatch',s)
+  self.assertNotIn('__VIBETRAM_OPENSSL_COMMANDS__',s)
+ def test_encoding_does_not_rewrite_flags_or_target_identity_variables(self):
+  from perl_overlay import openssl_shell_tools_program
+  s=openssl_shell_tools_program()
+  self.assertIn('$ENV{$role}=$encoded',s)
+  self.assertNotIn('$ENV{$target}=',s)
+  self.assertNotIn('CFLAGS=',s)
+  self.assertNotIn('PATH}=',s)
+ def test_generated_table_keeps_distinct_compilers_and_no_host_roles(self):
+  from perl_overlay import openssl_shell_tools_program
+  s=openssl_shell_tools_program()
+  for value in ('clang.exe','clang++.exe','llvm-ar.exe','llvm-ranlib.exe','CC_aarch64_linux_android','CXX_aarch64_linux_android'):self.assertIn(value,s)
+  for value in ('clang-cl','HOST_CC',"'link.exe'","'lib.exe'"):self.assertNotIn(value,s)
+ def test_cargo_environment_remains_raw_and_host_separate(self):
+  from perl_overlay import build_android_environment
+  from ndk_linker import NDK
+  from ndk_compilers import environment
+  import pathlib
+  parent={"PATH":"host","HOST_CC":"host-cl"};original=parent.copy()
+  env=build_android_environment(parent,NDK,NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin",pathlib.Path("C:/Program Files/Git/usr/bin/perl.exe"))
+  environment(env);self.assertEqual(parent,original);self.assertEqual(env["HOST_CC"],"host-cl")
+  for key in ("CC_aarch64_linux_android","CXX_aarch64_linux_android","CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"):self.assertNotIn('"',env[key])
+
+
+class TargetedCargoOpenSSLProbe(unittest.TestCase):
+ def test_exact_configured_absolute_fields(self):
+  from perl_overlay import configured_tool_fields,openssl_shell_tool
+  from ndk_linker import NDK
+  tools=NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin"
+  fields={"CROSS_COMPILE":"",**{role:"$(CROSS_COMPILE)"+openssl_shell_tool(role,str(tools/name)) for role,name in (("CC","clang.exe"),("CXX","clang++.exe"),("AR","llvm-ar.exe"),("RANLIB","llvm-ranlib.exe"))}}
+  configured_tool_fields(fields,True)
+  for role in ("CC","CXX","AR","RANLIB"):
+   bad=dict(fields);bad[role]=bad[role].replace('"','')
+   with self.subTest(role=role),self.assertRaises(AssertionError):configured_tool_fields(bad,True)
+ def recipe(self,target="crypto/libcrypto-lib-ctype.o",source="crypto/ctype.c"):
+  from perl_overlay import openssl_shell_tool
+  from ndk_compilers import PATHS
+  return openssl_shell_tool("CC",str(PATHS["clang.exe"]))+" -I. -Iinclude --target=aarch64-linux-android29 -O2 -DANDROID -c -o "+target+" "+source
+ def test_both_exact_targets_and_shell_decoding(self):
+  from perl_overlay import cargo_recipe_arguments
+  from ndk_compilers import PATHS
+  for target,source in (("crypto/libcrypto-lib-ctype.o","crypto/ctype.c"),("crypto/aes/libcrypto-lib-aes-sha1-armv8.o","crypto/aes/aes-sha1-armv8.S")):
+   args=cargo_recipe_arguments(self.recipe(target,source),target,source);self.assertEqual(args[0],PATHS["clang.exe"].as_posix());self.assertEqual(args[-1],source)
+ def test_unquoted_compiler_path_rejected(self):
+  from perl_overlay import cargo_recipe_arguments
+  with self.assertRaises(AssertionError):cargo_recipe_arguments(self.recipe().replace('"',''),"crypto/libcrypto-lib-ctype.o","crypto/ctype.c")
+ def test_duplicate_compiler_or_other_target_rejected(self):
+  from perl_overlay import cargo_recipe_arguments
+  for text,target,src in ((self.recipe()+"\n"+self.recipe(),"crypto/libcrypto-lib-ctype.o","crypto/ctype.c"),(self.recipe(),"other.o","crypto/ctype.c")):
+   with self.subTest(target=target),self.assertRaises(AssertionError):cargo_recipe_arguments(text,target,src)
+ def test_command_injection_and_wrong_roles_rejected(self):
+  from perl_overlay import cargo_recipe_arguments
+  for text in (self.recipe()+"; false",self.recipe().replace("clang.exe","clang++.exe"),self.recipe().replace("-Iinclude","-I/unknown"),self.recipe().replace("-O2","$(unexpected)")):
+   with self.subTest(text=text[:60]),self.assertRaises(AssertionError):cargo_recipe_arguments(text,"crypto/libcrypto-lib-ctype.o","crypto/ctype.c")
+ def test_target_environment_requires_bridge_and_fresh_pins(self):
+  import perl_overlay as p,pathlib,types
+  from unittest.mock import patch
+  from ndk_linker import NDK
+  from ndk_compilers import PATHS
+  g=types.SimpleNamespace(_resource_sample=lambda:None)
+  with self.assertRaises(AssertionError):p.cargo_command_environment(g,{},NDK,PATHS["clang.exe"].parent,pathlib.Path("C:/Program Files/Git/usr/bin/perl.exe"))
+  env={"PATH":"host","VIBETRAM_OPENSSL_CARGO_BRIDGE":"1","HOST_CC":"unchanged"}
+  with patch("ndk_linker.qualify",return_value={"link-pin":"fresh"}) as ld,patch("ndk_compilers.qualify",return_value={"compiler-pin":"fresh"}) as cc:
+   result=p.cargo_command_environment(g,env,NDK,PATHS["clang.exe"].parent,pathlib.Path("C:/Program Files/Git/usr/bin/perl.exe"))
+  self.assertEqual(result["CC"],str(PATHS["clang.exe"]));self.assertEqual(result["CXX"],str(PATHS["clang++.exe"]));self.assertEqual(result["HOST_CC"],"unchanged");self.assertEqual(ld.call_count,1);self.assertEqual(cc.call_count,1);self.assertNotIn("CC",env)
+ def test_workflow_is_targeted_and_bounded(self):
+  import pathlib
+  w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());j=w["jobs"]["openssl-probe"]
+  self.assertEqual(j["timeout-minutes"],12);self.assertEqual(j["permissions"],{"contents":"read"});self.assertEqual(j["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-cargo-command");self.assertEqual(j["steps"][1]["timeout-minutes"],10);self.assertEqual(j["steps"][2]["with"]["retention-days"],3)
+  self.assertFalse(any("provision" in str(s).lower() for s in j["steps"]));self.assertIn("[unsigned-trial-191]",w["jobs"]["unsigned-qualification"]["if"]);self.assertEqual(w["jobs"]["release"]["if"],chr(36)+"{{ false }}")
 
 if __name__=="__main__":unittest.main()

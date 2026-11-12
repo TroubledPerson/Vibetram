@@ -375,6 +375,43 @@ print JSON::PP::encode_json({state=>"PASS_ACTUAL_GENERATED_CONFIGURATION_HELPERS
 '''
 
 
+def openssl_shell_tool(role,value):
+ """Encode only selected canonical tools for Configure's shell-command fields.
+ Canonical Cargo target variables and executable identity pins stay unquoted.
+ This encoding grants no execution allowance; normal fresh image guards apply.
+ """
+ from ndk_compilers import PATHS
+ from ndk_linker import NDK
+ roles={"CC":PATHS["clang.exe"],"CXX":PATHS["clang++.exe"],"AR":NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ar.exe","RANLIB":NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ranlib.exe"}
+ assert role in roles and type(value) is str,"OPENSSL_COMMAND_ROLE_OR_TYPE"
+ path=roles[role]
+ if value==path.name:return value
+ assert value==str(path),"OPENSSL_COMMAND_EXACT_CANONICAL_PATH"
+ return '"'+path.as_posix()+'"'
+
+def openssl_shell_tools_program():
+ from ndk_compilers import PATHS
+ from ndk_linker import NDK
+ roles={"CC":PATHS["clang.exe"],"CXX":PATHS["clang++.exe"],"AR":NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ar.exe","RANLIB":NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ranlib.exe"}
+ def literal(s):return "'"+s.replace("\\","\\\\").replace("'","\\'")+"'"
+ entries=[]
+ for role,path in roles.items():
+  target={"CC":"CC_aarch64_linux_android","CXX":"CXX_aarch64_linux_android","AR":"AR_aarch64_linux_android","RANLIB":"RANLIB_aarch64_linux_android"}[role]
+  entries.append(literal(role)+"=>["+ ",".join(literal(v) for v in (str(path),path.name,openssl_shell_tool(role,str(path)),target))+"]")
+ return (" my %shell_tools=("+",".join(entries)+");\n"+r''' die "unqualified Configure command scope" unless ($ENV{VIBETRAM_OPENSSL_CARGO_BRIDGE}//"") eq "1";
+ for my $role (sort keys %shell_tools) {
+  next unless defined $ENV{$role};
+  my ($canonical,$basename,$encoded,$target)=@{$shell_tools{$role}};
+  my $value=$ENV{$role};
+  die "unexpected Configure tool command" unless $value eq $canonical || $value eq $basename;
+  if ($value eq $canonical) {
+   my $selected=$ENV{$target};
+   die "Configure target tool mismatch" unless defined($selected) && ($selected eq $canonical || ($role ne "CC" && $role ne "CXX" && $selected eq $basename));
+   $ENV{$role}=$encoded;
+  }
+ }
+''')
+
 def cargo_prefix_bridge_program():
  return r'''package Vibetram::ConfigurePaths;
 use strict;
@@ -403,11 +440,12 @@ sub import {
   die "unexpected OpenSSL inherited operation" if defined($ENV{ARFLAGS}) && $ENV{ARFLAGS} ne "crs";
   $ENV{ARFLAGS}="crs"; # pinned Configure writes its own Makefile operation
  }
+__VIBETRAM_OPENSSL_COMMANDS__
  $ARGV[$prefix[0]]="--prefix=".$posix;
  print STDERR "VIBETRAM_PINNED_OPENSSL_PREFIX_QUALIFIED\n";
 }
 1;
-'''
+'''.replace('__VIBETRAM_OPENSSL_COMMANDS__',openssl_shell_tools_program())
 
 def preserve_cargo_perl_paths(env):
  assert env.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1","PERL_PATH_BRIDGE_SCOPE"
@@ -581,9 +619,9 @@ for my $i (0..$#tools) {
 print JSON::PP::encode_json({state=>"PASS_EXACT_PHYSICAL_NDK_PATH_LOOKUP",checks=>3,compilerExecuted=>JSON::PP::false,prefix=>Cygwin::win_to_posix_path($ARGV[3],1)}),chr(10);
 '''
 
-def configure_with_runtime(guard,env,work,out,src,perl,ndk,tools):
+def configure_with_runtime(guard,env,work,out,src,perl,ndk,tools,cargo_commands=False):
  from openssl_probe import configure_args,PHYSICAL_SDK
- cross=configure_environment(env,ndk,tools,perl)
+ cross=cargo_command_environment(guard,env,ndk,tools,perl) if cargo_commands else configure_environment(env,ndk,tools,perl)
  lookup=work/"configure-tool-lookup.pl";lookup.write_text(configure_lookup_program(),encoding="ascii")
  found=json.loads(guard.run([perl,lookup,tools/"clang.exe",tools/"llvm-ar.exe",tools/"llvm-ranlib.exe",work/"install"],cwd=src,env=cross,capture=True,timeout=20).stdout)
  assert set(found)=={"state","checks","compilerExecuted","prefix"} and found["state"]=="PASS_EXACT_PHYSICAL_NDK_PATH_LOOKUP" and found["checks"]==3 and found["compilerExecuted"] is False,"CONFIGURE_LOOKUP_CHECKS"
@@ -605,9 +643,9 @@ def configure_with_runtime(guard,env,work,out,src,perl,ndk,tools):
  assert "PLATFORM=linux-aarch64" in text and "--target=aarch64-linux-android29" in text,"CONFIGURE_TARGET_CHANGED"
  fields={}
  for line in text.splitlines():
-  if re.match(r"^(?:PLATFORM|CROSS_COMPILE|CC|AR|ARFLAGS|RANLIB|PERL|CFLAGS|CPPFLAGS|CNF_CFLAGS|CNF_CPPFLAGS|OPTIONS)=",line):
+  if re.match(r"^(?:PLATFORM|CROSS_COMPILE|CC|CXX|AR|ARFLAGS|RANLIB|PERL|CFLAGS|CPPFLAGS|CNF_CFLAGS|CNF_CPPFLAGS|OPTIONS)=",line):
    key,value=line.split("=",1);assert key not in fields and len(value)<=8192,"CONFIGURE_FIELD_BOUND";fields[key]=value
- assert fields.get("CROSS_COMPILE")=="" and all(fields.get(key)=="$(CROSS_COMPILE)"+name for key,name in (("CC","clang.exe"),("AR","llvm-ar.exe"),("RANLIB","llvm-ranlib.exe"))),"CONFIGURE_TOOL_SELECTION_CHANGED"
+ configured_tool_fields(fields,cargo_commands)
  # Configure's real no-argument configdata.pm invocation generated these files.
  # Exercise that generated program's parse/help/report paths as well, without
  # reconfigure, make, external perldoc, URL retrieval or environment dumping.
@@ -629,7 +667,7 @@ def configure_with_runtime(guard,env,work,out,src,perl,ndk,tools):
  (out/"actual-configure.json").write_text(json.dumps(evidence,indent=2)+"\n",encoding="utf-8");print("ACTUAL_CONFIGURE_RESULT "+json.dumps(evidence),flush=True)
  return evidence
 
-def qualify_prepared_runtime(guard,env,work,out,src,configure=True):
+def qualify_prepared_runtime(guard,env,work,out,src,configure=True,cargo_commands=False):
  from openssl_probe import ROOT,with_physical_ndk_inputs
  from perl_prerequisites import inventory
  from ndk_input_metadata import capture_one
@@ -684,7 +722,9 @@ def qualify_prepared_runtime(guard,env,work,out,src,configure=True):
    assert hashlib.sha256(perl.read_bytes()).hexdigest()==GIT_PERL_SHA,"RUNTIME_PERL_IDENTITY"
    results.update(json.loads(guard.run([perl,helper,perl,tools/"clang.exe",tools/"llvm-ar.exe",tools/"llvm-ranlib.exe"],cwd=work,env=env,capture=True,timeout=30).stdout))
    assert results["state"]=="PASS_ACTUAL_COMPILER_DISCOVERY_HELPERS" and results["checks"]==10 and results["makeMakerVersion"]=="7.76","RUNTIME_ACTUAL_HELPERS_FAILED"
-   if configure:configuration.update(configure_with_runtime(guard,env,work,out,src,perl,ndk,tools))
+   if configure:
+    if cargo_commands:configuration.update(configure_with_runtime(guard,env,work,out,src,perl,ndk,tools,cargo_commands=True))
+    else:configuration.update(configure_with_runtime(guard,env,work,out,src,perl,ndk,tools))
   lease=capture_one(perl.parent,perl,callback=run_helpers)
   require_lease(lease,"RUNTIME_INTERPRETER_LEASE",out,"runtime-interpreter")
  with_physical_ndk_inputs(guard,env,out,actual)
@@ -720,7 +760,73 @@ def bootstrap_for_cargo(guard,env,work,out):
  assert report["state"]=="PASS_RUNTIME_CONFIGURE_ONLY","CARGO_RUNTIME_PREFLIGHT_FAILED"
  return prepared,pathlib.Path(selected["path"]),src,report
 
-def runtime_diagnosis(configure=False):
+def cargo_command_environment(guard,env,ndk,tools,perl):
+ assert env.get("VIBETRAM_OPENSSL_CARGO_BRIDGE")=="1","CARGO_COMMAND_PROBE_BRIDGE_REQUIRED"
+ cross=build_android_environment(env,ndk,tools,perl)
+ cross.update(CC=str(tools/"clang.exe"),CXX=str(tools/"clang++.exe"),AR=str(tools/"llvm-ar.exe"),RANLIB=str(tools/"llvm-ranlib.exe"),RANLIB_aarch64_linux_android=str(tools/"llvm-ranlib.exe"))
+ from ndk_linker import qualify as qualify_ndk
+ from ndk_compilers import qualify as qualify_compilers
+ cross.update(qualify_ndk(cross,guard._resource_sample));cross.update(qualify_compilers(cross,guard._resource_sample))
+ return cross
+
+def configured_tool_fields(fields,cargo_commands=False):
+ assert fields.get("CROSS_COMPILE")=="","CONFIGURE_TOOL_SELECTION_CHANGED"
+ roles={"CC":"clang.exe","AR":"llvm-ar.exe","RANLIB":"llvm-ranlib.exe"}
+ if cargo_commands:roles["CXX"]="clang++.exe"
+ from ndk_linker import NDK
+ tools=NDK/"toolchains/llvm/prebuilt/windows-x86_64/bin"
+ for role,name in roles.items():
+  expected=openssl_shell_tool(role,str(tools/name)) if cargo_commands else name
+  assert fields.get(role)=="$(CROSS_COMPILE)"+expected,"CONFIGURE_TOOL_SELECTION_CHANGED"
+
+def cargo_recipe_arguments(output,target,source):
+ import shlex
+ from ndk_compilers import PATHS
+ allowed={"crypto/libcrypto-lib-ctype.o":"crypto/ctype.c","crypto/aes/libcrypto-lib-aes-sha1-armv8.o":"crypto/aes/aes-sha1-armv8.S"}
+ assert allowed.get(target)==source,"TARGETED_OBJECT_SCOPE"
+ expected=openssl_shell_tool("CC",str(PATHS["clang.exe"]))
+ lines=[line.strip() for line in output.splitlines() if "clang.exe" in line]
+ assert len(lines)==1 and lines[0].startswith(expected+" "),"TARGETED_COMPILER_COMMAND_COUNT_OR_ENCODING"
+ args=shlex.split(lines[0],posix=True)
+ assert args[0]==PATHS["clang.exe"].as_posix() and args.count("-c")==1 and args.count("-o")==1 and args[args.index("-o")+1]==target and args[-1]==source,"TARGETED_RECIPE_IDENTITY"
+ assert "--target=aarch64-linux-android29" in args,"TARGETED_RECIPE_ANDROID_TARGET"
+ assert all(re.fullmatch(r"[A-Za-z0-9_./=,+:-]+",x) or re.fullmatch(r'-D(?:OPENSSLDIR|ENGINESDIR|MODULESDIR)=\"/[A-Za-z0-9_./+-]+\"',x) for x in args[1:]),"TARGETED_UNEXPECTED_SHELL_SYNTAX"
+ assert not any(x.startswith("/") or x.startswith("-I/") for x in args[1:]),"TARGETED_NATIVE_INPUT_PATH"
+ return args
+
+def qualify_cargo_objects(guard,env,work,out,src,perl,configuration):
+ from openssl_probe import PHYSICAL_SDK,CHECKSUM
+ from perl_path_probe import MAKE_SHA,MAKE_BYTES
+ from build_guard import executable_snapshot
+ ndk=PHYSICAL_SDK/"ndk/30.0.16248370";tools=ndk/"toolchains/llvm/prebuilt/windows-x86_64/bin"
+ cross=cargo_command_environment(guard,env,ndk,tools,perl)
+ configured_tool_fields(configuration["makefileFields"],True)
+ make=ndk/"prebuilt/windows-x86_64/bin/make.exe";shell=perl.parent/"sh.exe"
+ for path,digest,size in ((make,MAKE_SHA,MAKE_BYTES),(shell,"5490d0da5e7cf9d92068cc48fcc590f2bcf8564add8ff91c3b5fe541eb2d72e3",None),(perl,GIT_PERL_SHA,None)):
+  row=executable_snapshot(path,guard._resource_sample)
+  assert row["sha256"]==digest and (size is None or row["bytes"]==size),"TARGETED_TOOL_PIN"
+ makefile=src/"Makefile";before=hashlib.sha256(makefile.read_bytes()).hexdigest()
+ assert before==configuration["files"]["Makefile"]["sha256"],"TARGETED_MAKEFILE_CHANGED"
+ guard.run([make,"-f","Makefile","-j1","include/openssl/opensslv.h"],cwd=src,env=cross,capture=True,timeout=60)
+ rows=[]
+ for target,source in (("crypto/libcrypto-lib-ctype.o","crypto/ctype.c"),("crypto/aes/libcrypto-lib-aes-sha1-armv8.o","crypto/aes/aes-sha1-armv8.S")):
+  obj=src/target;assert not obj.exists(),"TARGETED_EXISTING_OBJECT"
+  initial=smoke_artifact_identity(src/source) if (src/source).is_file() else None
+  dry=guard.run([make,"-f","Makefile","--dry-run","-j1",target],cwd=src,env=cross,capture=True,timeout=30)
+  args=cargo_recipe_arguments(dry.stdout,target,source)
+  done=guard.run([make,"-f","Makefile","-j1",target],cwd=src,env=cross,capture=True,timeout=90)
+  assert cargo_recipe_arguments(done.stdout,target,source)==args,"TARGETED_EXECUTED_RECIPE_CHANGED"
+  meta=smoke_artifact_identity(obj);assert 64<=meta["bytes"]<=2*1024**2,"TARGETED_OBJECT_SIZE"
+  data=obj.read_bytes();assert data[:6]==b"\x7fELF\x02\x01" and int.from_bytes(data[16:18],"little")==1 and int.from_bytes(data[18:20],"little")==183,"TARGETED_OBJECT_NOT_ARM64_REL"
+  source_meta=smoke_artifact_identity(src/source)
+  if initial is not None:assert initial==source_meta,"TARGETED_SOURCE_CHANGED"
+  assert hashlib.sha256(makefile.read_bytes()).hexdigest()==before,"TARGETED_MAKEFILE_CHANGED"
+  rows.append({"target":target,"source":source,"compilerArgv":args,"object":meta,"sourceIdentity":source_meta,"generatedSource":initial is None,"ELF64":True,"machine":"AArch64","type":"REL","executed":False})
+ report={"state":"PASS_CARGO_EQUIVALENT_OPENSSL_TWO_OBJECTS","objects":rows,"configureCompilerFields":configuration["makefileFields"],"sourceArchiveSHA256":CHECKSUM,"makefileSHA256":before,"makeSHA256":MAKE_SHA,"shellSHA256":"5490d0da5e7cf9d92068cc48fcc590f2bcf8564add8ff91c3b5fe541eb2d72e3","perlSHA256":GIT_PERL_SHA,"maximumObjects":2,"makeWorkers":1,"fullAndroidBuild":False,"rustProvisioning":False,"signed":False,"releasable":False,"monitor":guard.report()}
+ (out/"cargo-command-qualification.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8");print(json.dumps(report,indent=2),flush=True)
+ return report
+
+def runtime_diagnosis(configure=False,cargo_commands=False):
  from openssl_probe import ROOT,PREFIX,probe_layout,probe_environment,with_physical_ndk_inputs
  from build_guard import Guard,MIN_FREE,MAX_OUTPUT
  from check_source import source_check
@@ -734,17 +840,31 @@ def runtime_diagnosis(configure=False):
  assert shutil.disk_usage(ROOT).free>=MIN_FREE+MAX_OUTPUT
  for p in (work,out,cargo,rustup):p.mkdir()
  for p in ("tmp","home","profile","profile/AppData/Local","profile/AppData/Roaming"):(work/p).mkdir(parents=True,exist_ok=True)
- env=probe_environment(work,cargo,rustup);guard=Guard(ROOT,work,out,env)
+ env=probe_environment(work,cargo,rustup)
+ if cargo_commands:
+  assert configure,"CARGO_COMMAND_CONFIGURE_REQUIRED"
+  env["VIBETRAM_OPENSSL_CARGO_BRIDGE"]="1"
+ guard=Guard(ROOT,work,out,env)
+ if cargo_commands:
+  import time
+  deadline=time.monotonic()+540;original_sample=guard._resource_sample
+  def bounded_sample():
+   assert time.monotonic()<=deadline,"TARGETED_PROBE_DEADLINE"
+   original_sample()
+  guard._resource_sample=bounded_sample
  guard.run([sys.executable,"-B",ROOT/"ci/openssl_probe.py","--materialize",work],env=env,timeout=180)
  src=work/"crate"/PREFIX/"openssl"
- selected,qualified_env,_=qualify_prepared_runtime(guard,env,work,out,src,configure=configure)
+ if cargo_commands:selected,qualified_env,report=qualify_prepared_runtime(guard,env,work,out,src,configure=configure,cargo_commands=True)
+ else:selected,qualified_env,report=qualify_prepared_runtime(guard,env,work,out,src,configure=configure)
+ if cargo_commands:qualify_cargo_objects(guard,qualified_env,work,out,src,pathlib.Path(selected["path"]),report["configuration"])
  if not configure:
   from perl_path_probe import qualify as qualify_paths
   from openssl_probe import PHYSICAL_SDK
   qualify_paths(guard,qualified_env,work,out,pathlib.Path(selected["path"]),PHYSICAL_SDK/"ndk/30.0.16248370")
 
 if __name__=="__main__":
- if len(sys.argv)==2 and sys.argv[1]=="--runtime-configure":runtime_diagnosis(configure=True)
+ if len(sys.argv)==2 and sys.argv[1]=="--runtime-cargo-command":runtime_diagnosis(configure=True,cargo_commands=True)
+ elif len(sys.argv)==2 and sys.argv[1]=="--runtime-configure":runtime_diagnosis(configure=True)
  elif len(sys.argv)==2 and sys.argv[1]=="--runtime-diagnosis":runtime_diagnosis()
  elif len(sys.argv)==4 and sys.argv[1]=="--runtime-prepare":runtime_prepare(pathlib.Path(sys.argv[2]),pathlib.Path(sys.argv[3]))
  else:

@@ -359,9 +359,9 @@
           }
         },
         {
-          "name": "Qualified pinned Perl runtime plus one actual OpenSSL Configure; no compilation",
-          "timeout-minutes": 8,
-          "run": "python -B ci/perl_overlay.py --runtime-configure"
+          "name": "Cargo-equivalent OpenSSL command quoting and exactly two tiny objects",
+          "timeout-minutes": 10,
+          "run": "python -B ci/perl_overlay.py --runtime-cargo-command"
         },
         {
           "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
