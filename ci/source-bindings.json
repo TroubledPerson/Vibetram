@@ -165,7 +165,7 @@
   },
   {
     "path": "ci/build_guard.py",
-    "sha256": "70bdb59184deb5b3f201c99e209d3ec3fcce7297c96dfb037d6ea47ab3ce4a32"
+    "sha256": "7043a4ea473c00c90919a8b6b1f11881cbdbb3fb3cc4f9a4e6034cc5800bca28"
   },
   {
     "path": "ci/census_supervisor.py",
@@ -273,7 +273,7 @@
   },
   {
     "path": "ci/scratch_snapshot.py",
-    "sha256": "349ff399e08e7ca5646bbe1a4785569289452bf3c72d1d8c531fb22e5950bccc"
+    "sha256": "5d5eb0f34f60502a74b5ad8c172f85571c8a9a190476163025897572beb9aae0"
   },
   {
     "path": "ci/test_alias_accounting.py",
@@ -397,7 +397,7 @@
   },
   {
     "path": "ci/test_scratch_snapshot.py",
-    "sha256": "b42a228d34c38dec9532d6ca9e6d6b81eeb4f1b9f4481c65fb0b49d3a80bc3bc"
+    "sha256": "b9d14712e286b02e35d1375f41f930d8838e7ae741a381b5c98a2ec16138edeb"
   },
   {
     "path": "ci/test_source_policy.py",

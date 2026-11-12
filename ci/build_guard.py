@@ -265,7 +265,7 @@ class Guard:
   self.root_scans=[]
   self._census_at('SCRATCH_TRACKER_OPEN',self.work,self.work)
   from contextlib import ExitStack
-  with ScratchTracker(self.work,self.scratch_baselines,self.scratch_parent_baselines) as scratch,ExitStack() as tmp_stack:return self._walk_tracked(lease,scratch,tmp_stack)
+  with ScratchTracker(self.work,self.scratch_baselines,self.scratch_parent_baselines,on_operation=lambda phase,path:self._census_at(phase,self.work,path)) as scratch,ExitStack() as tmp_stack:return self._walk_tracked(lease,scratch,tmp_stack)
  def _walk_tracked(self,lease,scratch,tmp_stack):
   total=0;alias_visits=0;target_visits=0;tmp_proof=None
   observed_dirs=set()
@@ -295,6 +295,9 @@ class Guard:
      self._census_at("DIRECTORY_ENUMERATION",root,pathlib.Path(folder))
      for name in list(dirs):
       d=pathlib.Path(folder)/name
+      if root==self.work and eligible_scratch(self.work,d):
+       self._census_at('SCRATCH_LEAF_SCAN',root,d)
+       total+=scratch.scan(d,total);dirs.remove(name);row['directoryEntries']+=1;row['scratchLeaves']+=1;since+=1;tick();continue
       self._census_at("DIRECTORY_ENTRY_METADATA",root,d)
       try:meta=fresh_entry(d)
       except FileNotFoundError as error:
@@ -311,9 +314,6 @@ class Guard:
       assert stat.S_ISDIR(meta.st_mode) and meta.st_reparse_tag==0,'DIRECTORY_ENTRY_TYPE_OR_TAG_CHANGED'
       observed_dirs.add(d)
       if root==self.work and compiler_scratch_root(self.work,d):self._census_at("SCRATCH_PARENT_LEASE",root,d);scratch.lease_parent(d);scratch.verify_parents()
-      if root==self.work and eligible_scratch(self.work,d):
-       self._census_at('SCRATCH_LEAF_SCAN',root,d)
-       total+=scratch.scan(d,total);dirs.remove(name);row['scratchLeaves']+=1
       tick()
      for name in files:
       p=pathlib.Path(folder)/name

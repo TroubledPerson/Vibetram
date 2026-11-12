@@ -129,4 +129,120 @@ class ProductionWalker(unittest.TestCase):
   with patch('scratch_snapshot.MetadataAPI',return_value=api),patch('build_guard.os.lstat',fake_metadata),patch('build_guard.os.walk',walk),patch.object(pathlib.Path,'exists',lambda p:True),patch.object(pathlib.Path,'is_symlink',lambda p:False),patch.object(pathlib.Path,'is_junction',lambda p:False):
    self.assertEqual(g._walk(None),4196)
   self.assertEqual(len(api.closed),len(api.opened))
+
+class LifecycleAPI(FakeAPI):
+ def __init__(self,mode='count'):
+  super().__init__();self.mode=mode;self.leaf_info=0;self.close_attempts=[]
+ def open(self,path,share,list_directory=False):
+  if pathlib.Path(path)==P and self.mode=='open-missing':
+   e=FileNotFoundError(2,'synthetic');e.winerror=2;raise e
+  if pathlib.Path(path)==P.parent and self.mode=='parent-denied':raise PermissionError(13,'synthetic')
+  return super().open(path,share,list_directory)
+ def info(self,h):
+  if h==str(P):
+   self.leaf_info+=1
+   if self.mode=='prior-info-missing' and self.leaf_info==1 or self.mode=='confirm-info-missing' and self.pending:
+    e=FileNotFoundError(2,'synthetic');e.winerror=2;raise e
+   if self.mode=='confirm-denied' and self.pending:raise PermissionError(13,'synthetic')
+   if self.mode=='leaf-reparse':self.rows[h]['tag']=0xa0000003;self.rows[h]['attributes']=0x410
+  return super().info(h)
+ def entries(self,h):
+  if self.mode in ('delete','repeated','confirm-info-missing','confirm-denied','not-pending','identity-changed','parent-changed','parent-reparse','cleanup-delete'):
+   self.pending=self.mode!='not-pending'
+   if self.mode=='identity-changed':self.rows[str(P)]['identity'][-1]+=1
+   if self.mode=='parent-changed':self.rows[str(P.parent)]['identity'][-1]+=1
+   if self.mode=='parent-reparse':self.rows[str(P.parent)]['tag']=0xa0000003
+   e=FileNotFoundError(2,'synthetic');e.winerror=2;raise e
+  return super().entries(h)
+ def final_name(self,h):
+  if h==str(P) and self.mode=='final-name-delete':
+   self.pending=True;e=FileNotFoundError(2,'synthetic');e.winerror=2;raise e
+  if h==str(P) and self.mode=='rename':return pathlib.PureWindowsPath(P.with_name('renamed'))
+  return super().final_name(h)
+ def close(self,h):
+  self.close_attempts.append(h)
+  if self.mode in ('cleanup','cleanup-delete'):raise PermissionError(13,'synthetic')
+  super().close(h)
+class IntegratedDirectoryLifecycle(unittest.TestCase):
+ def run_scan(self,mode='count',mutate=None):
+  from test_alias_accounting import guard,fake_metadata
+  g=guard();g.last_completed_bytes=None;g.last_snapshot_complete=False;g.snapshot_incomplete=0;g.ordinary_churn_count=0;g.recent_churn=[];g.peak=1;apis=[];walks=[0]
+  def factory():a=LifecycleAPI(mode);apis.append(a);return a
+  def walk(root,followlinks,onerror):
+   walks[0]+=1;dirs=[] if mode in ('delete','final-name-delete') and walks[0]>1 else [P.name]
+   yield str(P.parent),dirs,['one.bin']
+   if dirs:self.assertNotIn(P.name,dirs,'QUALIFIED_LEAF_MUST_NOT_BE_PATH_TRAVERSED')
+  def metadata(p):
+   self.assertNotEqual(p,P,'REDUNDANT_LEAF_PATH_LOOKUP_REINTRODUCED')
+   return fake_metadata(p)
+  try:
+   with patch('scratch_snapshot.MetadataAPI',side_effect=factory),patch('build_guard.os.walk',walk),patch('build_guard.os.lstat',metadata),patch.object(pathlib.Path,'exists',return_value=True),patch.object(pathlib.Path,'is_symlink',return_value=False),patch.object(pathlib.Path,'is_junction',return_value=False),patch.object(g,'_leased_pass',return_value=None):
+    if mutate:mutate(g)
+    value=g.scan_epoch(__import__('time').monotonic()+30)
+   return g,value,apis,walks[0],None
+  except BaseException as error:return g,None,apis,walks[0],error
+ def fail(self,mode,kind,code=None):
+  g,value,apis,n,e=self.run_scan(mode);self.assertIsNone(value);self.assertIsInstance(e,kind)
+  if code:self.assertIn(code,str(e))
+  self.assertIsNone(g.last_completed_bytes);return g,apis,n,e
+ def test_handle_first_regular_leaf_has_no_separate_path_stat(self):
+  g,value,apis,n,e=self.run_scan();self.assertIsNone(e);self.assertEqual(value,4207);self.assertEqual(n,1);self.assertTrue(all(len(a.opened)==len(a.closed) for a in apis))
+ def test_verified_delete_invalidates_entire_census(self):
+  g,value,apis,n,e=self.run_scan('delete');self.assertIsNone(e);self.assertEqual((value,n),(11,2));self.assertEqual(g.snapshot_incomplete,1);self.assertFalse(g.recent_churn[0]['completedTotalReported']);self.assertGreaterEqual(g.peak,4096);self.assertTrue(all(len(a.opened)==len(a.closed) for a in apis))
+ def test_final_name_delete_uses_prior_held_identity(self):
+  g,value,a,n,e=self.run_scan('final-name-delete');self.assertIsNone(e);self.assertEqual((value,n),(11,2));self.assertEqual(g.snapshot_incomplete,1);self.assertGreaterEqual(g.peak,4196)
+ def test_initial_open_missing_stays_fatal_with_precise_stage(self):
+  from census_supervisor import census_diagnostic
+  g,a,n,e=self.fail('open-missing',FileNotFoundError);r=census_diagnostic(e,g.roots,g.census_location);self.assertEqual(r['phase'],'SCRATCH_LEAF_OPEN');self.assertEqual(r['winerror'],2);self.assertEqual(r['relative'],P.relative_to(ROOT).as_posix());self.assertFalse(r['partialTotalAccepted']);self.assertEqual(n,1);self.assertNotIn(str(P),g.scratch_baselines)
+ def test_initial_metadata_missing_stays_fatal(self):
+  from census_supervisor import census_diagnostic
+  g,a,n,e=self.fail('prior-info-missing',FileNotFoundError);self.assertEqual(census_diagnostic(e,g.roots,g.census_location)['phase'],'SCRATCH_PRIOR_IDENTITY');self.assertEqual(n,1);self.assertTrue(all(len(x.opened)==len(x.closed) for x in a))
+ def test_confirmation_metadata_missing_stays_fatal(self):
+  from census_supervisor import census_diagnostic
+  g,a,n,e=self.fail('confirm-info-missing',FileNotFoundError);self.assertEqual(census_diagnostic(e,g.roots,g.census_location)['phase'],'SCRATCH_DELETE_IDENTITY');self.assertEqual(n,1);self.assertEqual(g.snapshot_incomplete,0)
+ def test_confirmation_permission_is_fatal(self):self.fail('confirm-denied',PermissionError)
+ def test_parent_permission_is_fatal(self):self.fail('parent-denied',PermissionError)
+ def test_unconfirmed_absence_not_accepted(self):self.fail('not-pending',AssertionError,'NOT_CONFIRMED_DELETE')
+ def test_held_leaf_identity_change_is_fatal(self):self.fail('identity-changed',AssertionError,'ENTRY_IDENTITY_RACE')
+ def test_parent_identity_change_is_fatal(self):self.fail('parent-changed',AssertionError,'PARENT_IDENTITY_RACE')
+ def test_parent_alias_transition_is_fatal(self):self.fail('parent-reparse',AssertionError,'REPARSE_OR_NON_DIRECTORY')
+ def test_leaf_reparse_is_not_followed(self):self.fail('leaf-reparse',AssertionError,'REPARSE_OR_NON_DIRECTORY')
+ def test_rename_is_not_delete(self):self.fail('rename',AssertionError,'RENAMED')
+ def test_prior_baseline_replacement_is_fatal(self):
+  def mutate(g):g.scratch_baselines[str(P)]=((1,9,9),1)
+  g,value,a,n,e=self.run_scan(mutate=mutate);self.assertIsNone(value);self.assertIsInstance(e,AssertionError);self.assertIn('ENTRY_REPLACED',str(e))
+ def test_repeated_churn_still_exhausts_two_attempts(self):
+  g,a,n,e=self.fail('repeated',AssertionError,'TWO_ATTEMPTS_EXHAUSTED');self.assertEqual(n,2);self.assertEqual(g.snapshot_incomplete,2)
+ def test_close_failure_prevents_success(self):
+  g,a,n,e=self.fail('cleanup',RuntimeError,'CLEANUP_UNVERIFIED');self.assertEqual(n,1);self.assertTrue(all(len(x.close_attempts)==len(x.opened) for x in a))
+ def test_close_failure_prevents_churn_restart(self):
+  g,a,n,e=self.fail('cleanup-delete',RuntimeError,'CLEANUP_UNVERIFIED');self.assertEqual(n,1);self.assertEqual(g.snapshot_incomplete,0);self.assertTrue(all(len(x.close_attempts)==len(x.opened) for x in a))
+ def test_operation_callback_never_changes_acceptance(self):
+  api=LifecycleAPI();events=[]
+  with ScratchTracker(ROOT,{}, {},api,on_operation=lambda phase,path:events.append((phase,path))) as t:self.assertEqual(t.scan(P,0),4196)
+  self.assertTrue(any(p=='SCRATCH_LEAF_OPEN' for p,_ in events));self.assertTrue(any(p=='SCRATCH_LEAF_ENUMERATION' for p,_ in events));self.assertTrue(all(phase.isupper() and len(phase)<=64 for phase,_ in events))
+ def test_cancellation_remains_fatal(self):
+  def mutate(g):g._enumeration_resources=lambda n:(_ for _ in ()).throw(RuntimeError('CANCELLED'))
+  g,value,a,n,e=self.run_scan(mutate=mutate);self.assertIsNone(value);self.assertIsInstance(e,RuntimeError);self.assertEqual(n,0)
+
+class NativeMetadataDiagnostics(unittest.TestCase):
+ def test_exact_identity_vs_tag_query_is_retained(self):
+  import ctypes
+  from scratch_snapshot import MetadataAPI
+  class Row(ctypes.Structure):_fields_=[('placeholder',ctypes.c_uint)]
+  for identity_ok,expected in ((False,'GET_IDENTITY'),(True,'GET_TAG')):
+   api=object.__new__(MetadataAPI);api.INFO=Row;api.TAG=Row
+   api.k=types.SimpleNamespace(GetFileInformationByHandle=lambda *args:identity_ok,GetFileInformationByHandleEx=lambda *args:False)
+   with patch('scratch_snapshot.ctypes.get_last_error',return_value=2):
+    with self.assertRaises(FileNotFoundError) as caught:api.info(123)
+   self.assertEqual(caught.exception.scratch_query,expected);self.assertEqual(caught.exception.winerror,2)
+ def test_query_annotation_is_bounded_and_does_not_accept_error(self):
+  api=FakeAPI();events=[]
+  with ScratchTracker(ROOT,{}, {},api,on_operation=lambda phase,path:events.append((phase,path))) as t:
+   h,before=t.observe(P)
+   e=FileNotFoundError(2,'synthetic');e.winerror=2;e.scratch_query='GET_TAG'
+   with patch.object(api,'info',side_effect=e):
+    with self.assertRaises(FileNotFoundError):t.info(h,'SCRATCH_PRIOR_IDENTITY')
+  self.assertEqual(events[-1][0],'SCRATCH_PRIOR_IDENTITY_GET_TAG')
+
 if __name__=='__main__':unittest.main()

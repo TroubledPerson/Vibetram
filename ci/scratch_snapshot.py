@@ -41,14 +41,17 @@ class MetadataAPI:
   self.k.GetFileInformationByHandleEx.argtypes=[w.HANDLE,ctypes.c_int,ctypes.c_void_p,w.DWORD];self.k.GetFileInformationByHandleEx.restype=w.BOOL
   self.k.GetFinalPathNameByHandleW.argtypes=[w.HANDLE,w.LPWSTR,w.DWORD,w.DWORD];self.k.GetFinalPathNameByHandleW.restype=w.DWORD
   self.k.CloseHandle.argtypes=[w.HANDLE];self.k.CloseHandle.restype=w.BOOL
- def checked(self,ok):
-  if not ok:raise ctypes.WinError(ctypes.get_last_error())
+ def checked(self,ok,query=None):
+  if not ok:
+   error=ctypes.WinError(ctypes.get_last_error())
+   if query in ('GET_IDENTITY','GET_TAG'):error.scratch_query=query
+   raise error
  def open(self,path,share,list_directory=False):
   h=self.k.CreateFileW(str(path),0x80|(1 if list_directory else 0),share,None,3,0x02200000,None)
   if h==ctypes.c_void_p(-1).value:raise ctypes.WinError(ctypes.get_last_error())
   return h
  def info(self,h):
-  row=self.INFO();tag=self.TAG();self.checked(self.k.GetFileInformationByHandle(h,ctypes.byref(row)));self.checked(self.k.GetFileInformationByHandleEx(h,9,ctypes.byref(tag),ctypes.sizeof(tag)))
+  row=self.INFO();tag=self.TAG();self.checked(self.k.GetFileInformationByHandle(h,ctypes.byref(row)),'GET_IDENTITY');self.checked(self.k.GetFileInformationByHandleEx(h,9,ctypes.byref(tag),ctypes.sizeof(tag)),'GET_TAG')
   return {'identity':[row.volume,row.indexHigh,row.indexLow],'created':(row.created.high<<32)|row.created.low,'tag':tag.tag,'attributes':tag.attrs}
  def standard(self,h):
   row=self.STANDARD();self.checked(self.k.GetFileInformationByHandleEx(h,1,ctypes.byref(row),ctypes.sizeof(row)))
@@ -73,20 +76,39 @@ class MetadataAPI:
   assert n<32768,'SCRATCH_FINAL_NAME_BOUND';name=value.value
   if name.startswith('\\\\?\\'):name=name[4:]
   return pathlib.PureWindowsPath(name)
- def close(self,h):self.k.CloseHandle(h)
+ def close(self,h):self.checked(self.k.CloseHandle(h))
 class ScratchTracker:
- def __init__(self,work,baselines,parent_baselines,api=None):
-  self.work=pathlib.Path(work);self.baselines=baselines;self.parent_baselines=parent_baselines;self.api=api;self.handles=[];self.parents={};self.entries={}
+ def __init__(self,work,baselines,parent_baselines,api=None,on_operation=None):
+  self.work=pathlib.Path(work);self.baselines=baselines;self.parent_baselines=parent_baselines;self.api=api;self.handles=[];self.parents={};self.entries={};self.on_operation=on_operation;self.handle_paths={}
  def __enter__(self):return self
- def __exit__(self,*exc):
+ def __exit__(self,kind,error,tb):
+  failures=[];count=0
   if self.api:
-   for h in reversed(self.handles):self.api.close(h)
+   for h in reversed(self.handles):
+    try:self.api.close(h)
+    except BaseException as failure:
+     count+=1
+     if len(failures)<16:failures.append(type(failure).__name__)
+  if count:
+   failure=RuntimeError('SCRATCH_HANDLE_CLEANUP_UNVERIFIED');failure.scratch_cleanup_failures=failures;failure.scratch_cleanup_failure_count=count
+   raise failure from error
+ def note(self,phase,path):
+  if self.on_operation:self.on_operation(phase,path)
+ def info(self,h,phase):
+  self.note(phase,self.handle_paths[h])
+  try:return self.api.info(h)
+  except OSError as error:
+   query=getattr(error,'scratch_query',None)
+   if query in ('GET_IDENTITY','GET_TAG'):self.note(phase+'_'+query,self.handle_paths[h])
+   raise
+ def standard(self,h,phase):
+  self.note(phase,self.handle_paths[h]);return self.api.standard(h)
  def _open(self,path,share,list_directory=False):
   if self.api is None:self.api=MetadataAPI()
-  h=self.api.open(path,share,list_directory);self.handles.append(h);return h
+  h=self.api.open(path,share,list_directory);self.handles.append(h);self.handle_paths[h]=pathlib.Path(path);return h
  def verify_parents(self):
   for _,(h,before) in self.parents.items():
-   after=self.api.info(h);regular(after,before['identity'][0]);assert identity(after)==identity(before),'SCRATCH_PARENT_IDENTITY_RACE'
+   after=self.info(h,'SCRATCH_PARENT_RECHECK');regular(after,before['identity'][0]);assert identity(after)==identity(before),'SCRATCH_PARENT_IDENTITY_RACE'
  def lease_parent(self,parent_path):
   parent_path=pathlib.Path(parent_path);assert len(parent_path.parts)<=32
   current=pathlib.Path(parent_path.anchor);volume=None
@@ -94,8 +116,8 @@ class ScratchTracker:
    if i:current=current/part
    parent=str(current)
    if parent not in self.parents:
-    ph=self._open(current,1);meta=self.api.info(ph);regular(meta,volume);self.parents[parent]=(ph,meta)
-   ph,meta=self.parents[parent];fresh=self.api.info(ph);regular(fresh,volume);assert identity(fresh)==identity(meta),'SCRATCH_PARENT_IDENTITY_RACE'
+    self.note('SCRATCH_PARENT_OPEN',current);ph=self._open(current,1);meta=self.info(ph,'SCRATCH_PARENT_IDENTITY');regular(meta,volume);self.parents[parent]=(ph,meta)
+   ph,meta=self.parents[parent];fresh=self.info(ph,'SCRATCH_PARENT_RECHECK');regular(fresh,volume);assert identity(fresh)==identity(meta),'SCRATCH_PARENT_IDENTITY_RACE'
    old=self.parent_baselines.get(parent);assert old is None or old==identity(fresh),'SCRATCH_PARENT_REPLACED';self.parent_baselines[parent]=identity(fresh)
    if volume is None:volume=fresh['identity'][0]
   return volume
@@ -103,27 +125,27 @@ class ScratchTracker:
   path=pathlib.Path(path);assert eligible(self.work,path),'UNQUALIFIED_SCRATCH_SCOPE';assert len(path.parts)<=32
   key=str(path);assert len(self.baselines)<MAX_TRACKED or key in self.baselines,'SCRATCH_IDENTITY_BUDGET'
   volume=self.lease_parent(path.parent)
-  h=self._open(path,7,True);meta=self.api.info(h);regular(meta,volume)
+  self.note('SCRATCH_LEAF_OPEN',path);h=self._open(path,7,True);meta=self.info(h,'SCRATCH_PRIOR_IDENTITY');regular(meta,volume)
   old=self.baselines.get(key);assert old is None or old==identity(meta),'SCRATCH_ENTRY_REPLACED'
   self.baselines[key]=identity(meta);self.entries[key]=(h,meta);return h,meta
  def confirmed_delete(self,path,h,before,partial):
-  self.verify_parents();after=self.api.info(h);regular(after,before['identity'][0]);assert identity(after)==identity(before),'SCRATCH_ENTRY_IDENTITY_RACE'
-  standard=self.api.standard(h);assert standard['directory'] is True and standard['deletePending'] is True and type(standard['allocationBytes']) is int and standard['allocationBytes']>=0,'SCRATCH_DISAPPEARANCE_NOT_CONFIRMED_DELETE'
+  self.verify_parents();after=self.info(h,'SCRATCH_DELETE_IDENTITY');regular(after,before['identity'][0]);assert identity(after)==identity(before),'SCRATCH_ENTRY_IDENTITY_RACE'
+  standard=self.standard(h,'SCRATCH_DELETE_STANDARD');assert standard['directory'] is True and standard['deletePending'] is True and type(standard['allocationBytes']) is int and standard['allocationBytes']>=0,'SCRATCH_DISAPPEARANCE_NOT_CONFIRMED_DELETE'
   raise IncompleteScratchSnapshot(path.relative_to(self.work).as_posix(),list(after['identity']),partial,standard['allocationBytes'])
  def scan(self,path,partial):
   path=pathlib.Path(path);h,before=self.observe(path);known=0
   try:
-   standard=self.api.standard(h);assert standard['directory'] and standard['allocationBytes']>=0,'SCRATCH_STANDARD_METADATA_INVALID'
+   standard=self.standard(h,'SCRATCH_LEAF_STANDARD');assert standard['directory'] and standard['allocationBytes']>=0,'SCRATCH_STANDARD_METADATA_INVALID'
    if standard['deletePending']:self.confirmed_delete(path,h,before,partial)
-   rows=self.api.entries(h);seen=set()
+   self.note('SCRATCH_LEAF_ENUMERATION',path);rows=self.api.entries(h);seen=set()
    for row in rows:
     assert row['name'] not in ('.','..') and row['name'].lower() not in seen and not row['attributes']&(16|0x400),'SCRATCH_AMBIGUOUS_ENTRY'
     assert type(row['size']) is int and row['size']>=0;seen.add(row['name'].lower());known+=row['size']
-   self.verify_parents();after=self.api.info(h);regular(after,before['identity'][0]);assert identity(after)==identity(before),'SCRATCH_ENTRY_IDENTITY_RACE'
-   if self.api.standard(h)['deletePending']:self.confirmed_delete(path,h,before,partial+known)
-   assert self.api.final_name(h)==pathlib.PureWindowsPath(path),'SCRATCH_ENTRY_RENAMED'
-   self.verify_parents();after=self.api.info(h);regular(after,before['identity'][0]);assert identity(after)==identity(before),'SCRATCH_ENTRY_IDENTITY_RACE'
-   standard=self.api.standard(h)
+   self.verify_parents();after=self.info(h,'SCRATCH_LEAF_RECHECK');regular(after,before['identity'][0]);assert identity(after)==identity(before),'SCRATCH_ENTRY_IDENTITY_RACE'
+   if self.standard(h,'SCRATCH_LEAF_STANDARD')['deletePending']:self.confirmed_delete(path,h,before,partial+known)
+   self.note('SCRATCH_LEAF_FINAL_NAME',path);assert self.api.final_name(h)==pathlib.PureWindowsPath(path),'SCRATCH_ENTRY_RENAMED'
+   self.verify_parents();after=self.info(h,'SCRATCH_LEAF_RECHECK');regular(after,before['identity'][0]);assert identity(after)==identity(before),'SCRATCH_ENTRY_IDENTITY_RACE'
+   standard=self.standard(h,'SCRATCH_LEAF_STANDARD')
    if standard['deletePending']:self.confirmed_delete(path,h,before,partial+known)
    return known+max(META_RESERVE,standard['allocationBytes'])
   except FileNotFoundError:
