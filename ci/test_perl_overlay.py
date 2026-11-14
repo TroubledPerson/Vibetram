@@ -1241,4 +1241,90 @@ class DirectOutputDiagnosticPrivacy(unittest.TestCase):
   self.assertEqual(set(row),{"state","stage","errorClass","code","errno","winerror","partialAccepted"})
   self.assertIsNone(row["errno"]);self.assertIsNone(row["winerror"])
 
+
+class DirectMaterializationDirectories(unittest.TestCase):
+ def paths(self):
+  root=pathlib.Path("D:/owned/probe/openssl-probe-work");return root,root/"candidate"
+ def api(self,mode=None):
+  root,dest=self.paths()
+  class Fake:
+   def __init__(self):self.opened=[];self.closed=[];self.paths={};self.ids={};self.changed=False
+   def open(self,path):
+    if mode in ("denied","missing","io") and len(self.opened)==2:
+     raise {"denied":PermissionError,"missing":FileNotFoundError,"io":OSError}[mode](13,"synthetic")
+    h=len(self.opened)+1;self.opened.append(h);self.paths[h]=path;self.ids.setdefault(str(path),len(self.ids)+1);return h
+   def info(self,h):
+    path=self.paths[h];identity=[1,self.ids[str(path)],0];attrs=0x10;tag=0
+    if mode=="file" and path==root:attrs=0
+    if mode=="reparse" and path==root.parent:attrs|=0x400;tag=0xa0000003
+    if mode=="tag" and path==dest:tag=123
+    if mode=="zero" and path==dest:identity[1]=0
+    if mode=="volume" and path==dest:identity[0]=2
+    if mode=="alias" and path==dest:identity=[1,self.ids[str(root)],0]
+    if self.changed and ((mode=="replace" and path==root) or (mode=="parent" and path==root.parent)):identity[1]+=1000
+    return {"identity":identity,"attributes":attrs,"tag":tag,"bytes":4096 if self.changed else 64}
+   def close(self,h):
+    self.closed.append(h)
+    if mode=="close":return False
+    return True
+  return Fake()
+ def use(self,mode=None,mutate=False,primary=False):
+  from direct_output_probe import materialization_directories
+  a=self.api(mode);root,dest=self.paths()
+  try:
+   with materialization_directories(root,dest,a):
+    if mutate:a.changed=True
+    if primary:raise ValueError("PRIMARY_FIXTURE")
+  finally:self.assertEqual(set(a.opened),set(a.closed))
+ def test_regular_directory_chain(self):self.use()
+ def test_mutable_directory_growth(self):self.use(mutate=True)
+ def test_file_rejected(self):
+  with self.assertRaisesRegex(AssertionError,"DIRECT_DIRECTORY_NOT_REGULAR"):self.use("file")
+ def test_reparse_ancestor_rejected(self):
+  with self.assertRaisesRegex(AssertionError,"DIRECT_DIRECTORY_NOT_REGULAR"):self.use("reparse")
+ def test_unknown_tag_rejected(self):
+  with self.assertRaisesRegex(AssertionError,"DIRECT_DIRECTORY_NOT_REGULAR"):self.use("tag")
+ def test_missing_identity_rejected(self):
+  with self.assertRaisesRegex(AssertionError,"DIRECT_DIRECTORY_IDENTITY"):self.use("zero")
+ def test_volume_and_alias_rejected(self):
+  for mode in ("volume","alias"):
+   with self.subTest(mode=mode),self.assertRaisesRegex(AssertionError,"DIRECT_DIRECTORY_VOLUME_OR_ALIAS"):self.use(mode)
+ def test_denial_missing_unexpected_io_fatal(self):
+  for mode,kind in (("denied",PermissionError),("missing",FileNotFoundError),("io",OSError)):
+   with self.subTest(mode=mode),self.assertRaises(kind):self.use(mode)
+ def test_root_replacement_rejected(self):
+  with self.assertRaisesRegex(AssertionError,"DIRECT_DIRECTORY_CHANGED"):self.use("replace",True)
+ def test_parent_replacement_rejected(self):
+  with self.assertRaisesRegex(AssertionError,"DIRECT_DIRECTORY_CHANGED"):self.use("parent",True)
+ def test_cleanup_failure_fatal(self):
+  with self.assertRaisesRegex(AssertionError,"DIRECT_DIRECTORY_CLOSE_FAILED"):self.use("close")
+ def test_primary_failure_preserved(self):
+  with self.assertRaisesRegex(ValueError,"PRIMARY_FIXTURE") as got:self.use("close",primary=True)
+  self.assertIn("DIRECT_DIRECTORY_CLOSE_FAILED",got.exception.__notes__)
+ def test_wrong_destination_rejected(self):
+  from direct_output_probe import materialization_directories
+  root,dest=self.paths();a=self.api()
+  with self.assertRaisesRegex(AssertionError,"DIRECT_DIRECTORY_SCOPE"):materialization_directories(root,dest.parent/"outside",a)
+  self.assertEqual(a.opened,[])
+ def test_archive_remains_file_guarded(self):
+  import inspect,direct_output_probe as d
+  text=inspect.getsource(d.materialize_candidate)
+  self.assertIn("regular_chain(archive)",text);self.assertNotIn("regular_chain(work)",text)
+  self.assertIn("with materialization_directories(work,destination):",text)
+ def test_real_windows_materialization(self):
+  import os,io,tarfile,hashlib,direct_output_probe as d,openssl_probe as op
+  from unittest.mock import patch
+  if os.name!="nt":self.skipTest("Windows only")
+  with admitted_test_root() as admitted:
+   root=admitted/"direct-materialize-real";assert not root.exists(),"PRESERVE_MATERIALIZATION_FIXTURE"
+   root.mkdir();work=root/"openssl-probe-work";work.mkdir();(work/"candidate").mkdir()
+   payload=b"fixture-only-configure\n";buffer=io.BytesIO()
+   with tarfile.open(fileobj=buffer,mode="w:gz") as tar:
+    info=tarfile.TarInfo(op.PREFIX+"openssl/Configure");info.size=len(payload);tar.addfile(info,io.BytesIO(payload))
+   archive=buffer.getvalue();self.assertLessEqual(len(archive),2048)
+   (work/"openssl-src.crate").write_bytes(archive)
+   with patch.object(op,"ROOT",root),patch.object(op,"CHECKSUM",hashlib.sha256(archive).hexdigest()):
+    d.materialize_candidate(work)
+   self.assertEqual((work/"candidate/crate"/op.PREFIX/"openssl/Configure").read_bytes(),payload)
+
 if __name__=="__main__":unittest.main()

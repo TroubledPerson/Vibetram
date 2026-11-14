@@ -185,7 +185,7 @@
   },
   {
     "path": "ci/direct_output_probe.py",
-    "sha256": "a4dfd496b20879a4b894d83197d1dddb34d8769f040562fd482cc390b0d4186b"
+    "sha256": "236e896fec4864507c8acbd0a613e371679ebb0e4a9b40a91a9613257a88337f"
   },
   {
     "path": "ci/failure_lifecycle.py",
@@ -365,7 +365,7 @@
   },
   {
     "path": "ci/test_perl_overlay.py",
-    "sha256": "833d6844c171bcdf2cf8851eb7f15a86860672880a555c6f93b365d769cc0a45"
+    "sha256": "ad022428dbbccf20b8b48de4c78ee2081220671793961e2bea057c1ce79c59a8"
   },
   {
     "path": "ci/test_perl_path_probe.py",

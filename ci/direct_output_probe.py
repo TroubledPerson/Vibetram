@@ -108,24 +108,64 @@ def compare_pair(baseline,candidate,left,right):
  ls=elf_signature(left);rs=elf_signature(right);assert ls==rs,"DIRECT_OBJECT_SEMANTICS_CHANGED"
  return {"target":baseline["target"],"baselineSHA256":hashlib.sha256(left).hexdigest(),"candidateSHA256":hashlib.sha256(right).hexdigest(),"semanticSHA256":ls["sha256"],"sections":ls["sections"],"symbols":ls["symbols"],"relocations":ls["relocations"],"debugCompared":False}
 
+def materialization_directories(work,destination,api=None):
+ import contextlib
+ from perl_overlay import TemplateInputAPI
+ assert isinstance(work,pathlib.Path) and work.is_absolute() and 2<=len(work.parts)<=24 and destination==work/"candidate","DIRECT_DIRECTORY_SCOPE"
+ @contextlib.contextmanager
+ def lease():
+  reader=api or TemplateInputAPI();held=[];rows=[];seen=set();volume=None;primary=None
+  def opened(part):
+   assert len(held)<64,"DIRECT_DIRECTORY_HANDLE_BOUND"
+   h=reader.open(part);held.append(h);row=reader.info(h)
+   assert row["tag"]==0 and not row["attributes"]&0x400 and row["attributes"]&0x10,"DIRECT_DIRECTORY_NOT_REGULAR"
+   identity=tuple(row["identity"]);assert len(identity)>=2 and identity[1]!=0,"DIRECT_DIRECTORY_IDENTITY"
+   return h,row,identity
+  try:
+   part=pathlib.Path(work.anchor);paths=[]
+   for i,name in enumerate(work.parts):
+    if i:part=part/name
+    paths.append(part)
+   paths.append(destination)
+   for part in paths:
+    h,row,identity=opened(part)
+    if volume is None:volume=identity[0]
+    assert identity[0]==volume and identity not in seen,"DIRECT_DIRECTORY_VOLUME_OR_ALIAS"
+    seen.add(identity);rows.append((part,h,row))
+   yield
+   for part,h,before in rows:
+    current=reader.info(h);_,fresh,_=opened(part)
+    assert all(before[k]==current[k]==fresh[k] for k in ("identity","attributes","tag")),"DIRECT_DIRECTORY_CHANGED"
+  except BaseException as error:primary=error;raise
+  finally:
+   failed=False
+   for h in reversed(held):
+    try:failed=not reader.close(h) or failed
+    except BaseException:failed=True
+   if failed:
+    if primary is not None:primary.add_note("DIRECT_DIRECTORY_CLOSE_FAILED")
+    else:raise AssertionError("DIRECT_DIRECTORY_CLOSE_FAILED")
+ return lease()
+
 def materialize_candidate(work):
  from openssl_probe import ROOT,PREFIX,CHECKSUM,validate_members,sha,regular_chain
  assert work==ROOT/"openssl-probe-work","DIRECT_ROOT"
  destination=work/"candidate";archive=work/"openssl-src.crate"
- regular_chain(work);regular_chain(archive)
- assert destination.is_dir() and not any(destination.iterdir()),"DIRECT_PRESERVE_CANDIDATE"
- assert sha(archive)==CHECKSUM,"DIRECT_ARCHIVE"
- with tarfile.open(archive,"r:gz") as tar:
-  members=tar.getmembers();validate_members(members)
-  for member in members:
-   path=destination/"crate"/member.name
-   if member.isdir():path.mkdir(parents=True,exist_ok=True)
-   else:
-    path.parent.mkdir(parents=True,exist_ok=True)
-    with tar.extractfile(member) as source,path.open("xb") as target:
-     import shutil
-     shutil.copyfileobj(source,target,65536)
- assert sha(archive)==CHECKSUM and (destination/"crate"/PREFIX/"openssl/Configure").is_file(),"DIRECT_ARCHIVE_CHANGED"
+ with materialization_directories(work,destination):
+  regular_chain(archive)
+  assert destination.is_dir() and not any(destination.iterdir()),"DIRECT_PRESERVE_CANDIDATE"
+  assert sha(archive)==CHECKSUM,"DIRECT_ARCHIVE"
+  with tarfile.open(archive,"r:gz") as tar:
+   members=tar.getmembers();validate_members(members)
+   for member in members:
+    path=destination/"crate"/member.name
+    if member.isdir():path.mkdir(parents=True,exist_ok=True)
+    else:
+     path.parent.mkdir(parents=True,exist_ok=True)
+     with tar.extractfile(member) as source,path.open("xb") as target:
+      import shutil
+      shutil.copyfileobj(source,target,65536)
+  assert sha(archive)==CHECKSUM and (destination/"crate"/PREFIX/"openssl/Configure").is_file(),"DIRECT_ARCHIVE_CHANGED"
 
 def _put(out,name,row):
  assert name in ("direct-output-qualification.json","direct-output-failure.json"),"DIRECT_RECEIPT_SCOPE"
