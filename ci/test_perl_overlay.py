@@ -160,7 +160,7 @@ class ConfigureRuntimeQualification(unittest.TestCase):
  def test_configure_workflow_reuses_qualified_runtime(self):
   import pathlib
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());job=w["jobs"]["openssl-probe"]
-  self.assertEqual(job["permissions"],{"contents":"read"});self.assertEqual(job["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-cargo-command");self.assertIn("[openssl-probe-191]",job["if"])
+  self.assertEqual(job["permissions"],{"contents":"read"});self.assertEqual(job["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-direct-output");self.assertIn("[openssl-probe-191]",job["if"])
 
 
 class EndToEndConfiguration(unittest.TestCase):
@@ -528,7 +528,7 @@ class TargetedCargoOpenSSLProbe(unittest.TestCase):
  def test_workflow_is_targeted_and_bounded(self):
   import pathlib
   w=json.loads((pathlib.Path(__file__).resolve().parents[1]/".github/workflows/offline-android.yml").read_text());j=w["jobs"]["openssl-probe"]
-  self.assertEqual(j["timeout-minutes"],12);self.assertEqual(j["permissions"],{"contents":"read"});self.assertEqual(j["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-cargo-command");self.assertEqual(j["steps"][1]["timeout-minutes"],10);self.assertEqual(j["steps"][2]["with"]["retention-days"],3)
+  self.assertEqual(j["timeout-minutes"],12);self.assertEqual(j["permissions"],{"contents":"read"});self.assertEqual(j["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-direct-output");self.assertEqual(j["steps"][1]["timeout-minutes"],10);self.assertEqual(j["steps"][2]["with"]["retention-days"],3)
   self.assertFalse(any("provision" in str(s).lower() for s in j["steps"]));self.assertIn("[unsigned-trial-191]",w["jobs"]["unsigned-qualification"]["if"]);self.assertEqual(w["jobs"]["release"]["if"],chr(36)+"{{ false }}")
 
 
@@ -897,7 +897,7 @@ class TemplateAndStageIntegration(unittest.TestCase):
  def test_wiring_and_template_checks(self):
   import inspect
   text=inspect.getsource(self.p.validated_command_evidence)
-  self.assertIn("command_evidence(output,target,work,stage)",text);self.assertIn("cargo_recipe_arguments(output,target,source,generator_required,stage)",text)
+  self.assertIn("command_evidence(output,target,work,stage)",text);self.assertIn("cargo_recipe_arguments(output,target,source,generator_required,stage,direct_output=direct_output)",text)
   text=inspect.getsource(self.p.qualify_cargo_objects);self.assertGreaterEqual(text.count("verify_template()"),5);self.assertIn("TARGETED_TEMPLATE_SOURCE_SCOPE",text)
  def test_real_windows_held_read(self):
   import os
@@ -995,5 +995,250 @@ class FixtureRootAdmission(unittest.TestCase):
   with admitted_test_root() as admitted:
    env={"GITHUB_ACTIONS":"true","RUNNER_OS":"Windows","RUNNER_TEMP":str(admitted)}
    with admitted_test_root(env) as root:self.assertEqual(root,admitted)
+
+
+def _direct_elf(text=b"\0\0\0\x94",debug=b"x",reloc=283,stackflags=0):
+ import struct
+ names=b"\0.shstrtab\0.text\0.strtab\0.symtab\0.rela.text\0.note.GNU-stack\0.debug_info\0"
+ entries=[("",0,0,b"",0,0,0,0),(".shstrtab",3,0,names,0,0,1,0),(".text",1,6,text,0,0,4,0),(".strtab",3,0,b"\0probe\0external\0",0,0,1,0)]
+ symbols=bytes(24)+struct.pack("<IBBHQQ",1,18,0,2,0,4)+struct.pack("<IBBHQQ",7,16,0,0,0,0)
+ entries += [(".symtab",2,0,symbols,3,1,8,24),(".rela.text",4,64,struct.pack("<QQq",0,(2<<32)|reloc,0),4,2,8,24),(".note.GNU-stack",1,stackflags,b"",0,0,1,0),(".debug_info",1,0,debug,0,0,1,0)]
+ data=bytearray(64);data[:7]=b"\x7fELF\x02\x01\x01";struct.pack_into("<HHI",data,16,1,183,1);struct.pack_into("<H",data,52,64)
+ rows=[]
+ for name,kind,flags,body,link,info,align,size in entries:
+  offset=len(data);data.extend(body);rows.append((names.index(name.encode()+b"\0") if name else 0,kind,flags,0,offset,len(body),link,info,align,size))
+ while len(data)%8:data.append(0)
+ shoff=len(data)
+ for row in rows:data.extend(struct.pack("<IIQQQQIIQQ",*row))
+ struct.pack_into("<Q",data,40,shoff);struct.pack_into("<HHH",data,58,64,len(rows),1)
+ return bytes(data)
+
+class DirectOutputFourObjectProbe(unittest.TestCase):
+ def setUp(self):
+  import direct_output_probe as d
+  self.d=d
+ def rows(self,target=None):
+  d=self.d;target=target or d.C_TARGET;source="crypto/ctype.c" if target==d.C_TARGET else "crypto/aes/aes-sha1-armv8.S"
+  a={"target":target,"source":source,"sourceIdentity":{"sha256":"a"*64},"object":{},"compilerArgv":["clang.exe","--target=aarch64-linux-android29","-c","-o",target,source]}
+  import copy
+  b=copy.deepcopy(a)
+  if target==d.C_TARGET:b["compilerArgv"].insert(1,d.FLAG)
+  return a,b
+ def test_c_flag_is_one_invocation_only(self):
+  d=self.d;fields={"CFLAGS":"-O3 -fPIC --target=aarch64-linux-android29"};before=fields.copy()
+  for dry in (True,False):
+   args=d.make_command("make",d.C_TARGET,fields,"candidate",dry)
+   self.assertEqual(args[-1],"CFLAGS="+fields["CFLAGS"]+" "+d.FLAG);self.assertEqual(args.count("-j1"),1)
+  self.assertEqual(fields,before)
+ def test_baseline_and_assembly_are_unchanged(self):
+  d=self.d
+  for arm in ("baseline","candidate"):
+   a=d.make_command("make",d.ASM_TARGET,{} ,arm,False)
+   self.assertNotIn(d.FLAG," ".join(a));self.assertEqual(a,["make","-f","Makefile","-j1",d.ASM_TARGET])
+  self.assertNotIn(d.FLAG," ".join(d.make_command("make",d.C_TARGET,{},"baseline",True)))
+ def test_bad_arm_and_target_rejected(self):
+  d=self.d
+  for target,arm in (("all","candidate"),(d.C_TARGET,"other")):
+   with self.assertRaises(AssertionError):d.make_command("make",target,{} ,arm,False)
+ def test_cflags_fail_closed(self):
+  d=self.d
+  for v in ("","-O3\nx","-O3; echo bad","$(BAD)","-O3 "+d.FLAG,"-Xclang -O3","-o bad","-c","-O3 "+chr(96)+"x"):
+   with self.subTest(value=v),self.assertRaises(AssertionError):d.make_command("make",d.C_TARGET,{"CFLAGS":v},"candidate",False)
+ def test_scope_exact_fresh_arms(self):
+  from openssl_probe import ROOT,PREFIX
+  d=self.d;work=ROOT/"openssl-probe-work";out=ROOT/"openssl-probe-output"
+  for arm,base in (("baseline",work),("candidate",work/"candidate")):self.assertEqual(d.arm_scope(work,out,base/"crate"/PREFIX/"openssl",arm),out/arm)
+  with self.assertRaises(AssertionError):d.arm_scope(work,out,work/"crate"/PREFIX/"openssl","candidate")
+ def test_valid_elf_and_debug_difference(self):
+  d=self.d;a=d.elf_signature(_direct_elf());b=d.elf_signature(_direct_elf(debug=b"different"))
+  self.assertEqual(a,b);self.assertEqual(a["symbols"],3);self.assertEqual(a["relocations"],1);self.assertFalse(a["debugCompared"])
+ def test_code_difference_detected(self):
+  self.assertNotEqual(self.d.elf_signature(_direct_elf())["sha256"],self.d.elf_signature(_direct_elf(text=b"\xc0\x03\x5f\xd6"))["sha256"])
+ def test_relocation_difference_detected(self):
+  self.assertNotEqual(self.d.elf_signature(_direct_elf())["sha256"],self.d.elf_signature(_direct_elf(reloc=282))["sha256"])
+ def test_stack_metadata_difference_detected(self):
+  self.assertNotEqual(self.d.elf_signature(_direct_elf())["sha256"],self.d.elf_signature(_direct_elf(stackflags=4))["sha256"])
+ def test_header_target_and_bounds_rejected(self):
+  import struct
+  base=_direct_elf()
+  for offset,fmt,value in ((4,"B",1),(5,"B",2),(16,"H",3),(18,"H",62),(20,"I",0),(40,"Q",len(base)+1),(52,"H",0),(58,"H",32),(60,"H",2048),(62,"H",999)):
+   data=bytearray(base);struct.pack_into("<"+fmt,data,offset,value)
+   with self.subTest(offset=offset),self.assertRaises(AssertionError):self.d.elf_signature(bytes(data))
+ def test_oversize_and_truncated_rejected(self):
+  for b in (b"",b"x"*63,_direct_elf()[:-1],b"x"*(self.d.OBJECT_LIMIT+1)):
+   with self.assertRaises(AssertionError):self.d.elf_signature(b)
+ def test_relocation_symbol_and_section_bounds(self):
+  import struct
+  base=bytearray(_direct_elf());table=struct.unpack_from("<Q",base,40)[0];rel=struct.unpack_from("<Q",base,table+5*64+24)[0]
+  for offset,value in ((rel+8,999<<32),(rel,9999)):
+   b=bytearray(base);struct.pack_into("<Q",b,offset,value)
+   with self.assertRaises(AssertionError):self.d.elf_signature(bytes(b))
+ def test_pair_requires_only_c_flag_difference(self):
+  a,b=self.rows();row=self.d.compare_pair(a,b,_direct_elf(),_direct_elf(debug=b"y"))
+  self.assertEqual(row["semanticSHA256"],self.d.elf_signature(_direct_elf())["sha256"])
+  b["compilerArgv"].append("-O0")
+  with self.assertRaises(AssertionError):self.d.compare_pair(a,b,_direct_elf(),_direct_elf())
+ def test_pair_rejects_assembly_flag_and_source_change(self):
+  a,b=self.rows(self.d.ASM_TARGET);self.d.compare_pair(a,b,_direct_elf(),_direct_elf())
+  b["compilerArgv"].insert(1,self.d.FLAG)
+  with self.assertRaises(AssertionError):self.d.compare_pair(a,b,_direct_elf(),_direct_elf())
+  a,b=self.rows();b["sourceIdentity"]["sha256"]="b"*64
+  with self.assertRaises(AssertionError):self.d.compare_pair(a,b,_direct_elf(),_direct_elf())
+ def test_pair_rejects_target_and_code_change(self):
+  a,b=self.rows();b["target"]=self.d.ASM_TARGET
+  with self.assertRaises(AssertionError):self.d.compare_pair(a,b,_direct_elf(),_direct_elf())
+  a,b=self.rows()
+  with self.assertRaises(AssertionError):self.d.compare_pair(a,b,_direct_elf(),_direct_elf(text=b"\0"*4))
+ def test_read_object_is_fresh_and_bounded(self):
+  from unittest.mock import patch
+  import hashlib,pathlib
+  data=_direct_elf();expected={"bytes":len(data),"sha256":hashlib.sha256(data).hexdigest()}
+  with patch("perl_overlay.smoke_artifact_identity",side_effect=[expected,expected]),patch.object(pathlib.Path,"read_bytes",return_value=data):self.assertEqual(self.d.read_object(pathlib.Path("controlled"),expected),data)
+  for after in ({**expected,"bytes":1},{**expected,"sha256":"0"*64}):
+   with patch("perl_overlay.smoke_artifact_identity",side_effect=[expected,after]),patch.object(pathlib.Path,"read_bytes",return_value=data),self.assertRaises(AssertionError):self.d.read_object(pathlib.Path("controlled"),expected)
+ def test_recipe_flag_role_is_explicit(self):
+  from perl_overlay import cargo_recipe_arguments
+  base=TargetedCargoOpenSSLProbe().recipe()
+  t=self.d.C_TARGET;s="crypto/ctype.c"
+  changed=base.replace(" -c "," "+self.d.FLAG+" -c ")
+  self.assertNotIn(self.d.FLAG,cargo_recipe_arguments(base,t,s))
+  self.assertIn(self.d.FLAG,cargo_recipe_arguments(changed,t,s,direct_output=True))
+  for text,kwargs in ((changed,{}),(base,{"direct_output":True}),(changed.replace(self.d.FLAG,self.d.FLAG+" "+self.d.FLAG),{"direct_output":True})):
+   with self.assertRaises(AssertionError):cargo_recipe_arguments(text,t,s,**kwargs)
+ def test_materialization_rejects_existing_or_bad_archive(self):
+  import pathlib
+  from unittest.mock import patch
+  from openssl_probe import ROOT
+  work=ROOT/"openssl-probe-work"
+  for existing,digest in ((True,"bad"),(False,"bad")):
+   with patch("openssl_probe.regular_chain"),patch("openssl_probe.sha",return_value=digest),patch.object(pathlib.Path,"is_dir",return_value=True),patch.object(pathlib.Path,"iterdir",return_value=iter([pathlib.Path("prior")] if existing else [])),patch("direct_output_probe.tarfile.open") as tar,self.assertRaises(AssertionError):self.d.materialize_candidate(work)
+   tar.assert_not_called()
+ def test_materialization_validates_before_writing(self):
+  import pathlib
+  from unittest.mock import patch,MagicMock
+  from openssl_probe import ROOT,CHECKSUM
+  tar=MagicMock();tar.__enter__.return_value.getmembers.return_value=[]
+  with patch("openssl_probe.regular_chain"),patch("openssl_probe.sha",return_value=CHECKSUM),patch.object(pathlib.Path,"is_dir",return_value=True),patch.object(pathlib.Path,"iterdir",return_value=iter([])),patch("direct_output_probe.tarfile.open",return_value=tar),patch("openssl_probe.validate_members",side_effect=AssertionError("BAD_MEMBERS")),patch.object(pathlib.Path,"open") as opened,self.assertRaises(AssertionError):self.d.materialize_candidate(ROOT/"openssl-probe-work")
+  opened.assert_not_called()
+ def orchestrate(self,failure=None):
+  import pathlib,types,hashlib,copy
+  from unittest.mock import patch
+  import openssl_probe as op,perl_overlay as po,ndk_input_metadata as ni
+  work=op.ROOT/"openssl-probe-work";out=op.ROOT/"openssl-probe-output";src=work/"crate"/op.PREFIX/"openssl"
+  g=types.SimpleNamespace(count=1,peak=19,_resource_sample=lambda:None);calls=[];receipts=[]
+  def run(*args,**kwargs):
+   calls.append("materialize")
+   if failure=="extract":raise RuntimeError("EXTRACT_STOP")
+  g.run=run
+  def objects(*args,**kwargs):
+   arm=kwargs["direct_output_arm"];calls.append(arm)
+   if failure==arm:raise RuntimeError("ARM_STOP")
+   rows=[]
+   for target in (self.d.C_TARGET,self.d.ASM_TARGET):
+    a,b=self.rows(target);row=copy.deepcopy(a if arm=="baseline" else b)
+    if failure=="source" and arm=="candidate":row["sourceIdentity"]["sha256"]="b"*64
+    rows.append(row)
+   if failure=="count" and arm=="candidate":rows.pop()
+   return {"objects":rows}
+  def physical(guard,env,dest,callback):callback(pathlib.Path("ndk"),pathlib.Path("tools"));return {"qualified":True}
+  def lease(root,leaf,callback):
+   calls.append("lease")
+   if failure=="lease":return {"qualified":False}
+   callback();return {"qualified":True,"callbackSucceeded":True}
+  def configured(*a,**k):
+   calls.append("configure")
+   if failure=="configure":raise RuntimeError("CONFIGURE_STOP")
+   return {"makefileFields":{}}
+  def put(dest,name,row):receipts.append((name,row))
+  result=error=None
+  with patch.object(pathlib.Path,"mkdir"),patch.object(op,"sha",return_value="a"*64),patch.object(op,"with_physical_ndk_inputs",side_effect=physical),patch.object(ni,"capture_one",side_effect=lease),patch.object(po,"qualify_cargo_objects",side_effect=objects),patch.object(po,"configure_with_runtime",side_effect=configured),patch.object(self.d,"read_object",return_value=_direct_elf()),patch.object(self.d,"_put",side_effect=put):
+   try:result=self.d.qualify_four_objects(g,{},work,out,src,pathlib.Path("perl.exe"),{})
+   except BaseException as e:error=e
+  return result,error,calls,receipts
+ def test_orchestration_is_four_fresh_objects(self):
+  row,error,calls,receipts=self.orchestrate();self.assertIsNone(error);self.assertEqual(row["maximumObjects"],4);self.assertTrue(row["flagCOnly"]);self.assertFalse(row["failedOutputsReused"])
+  self.assertEqual(calls,["baseline","materialize","lease","configure","candidate"]);self.assertEqual(len(receipts),1);self.assertEqual(len(row["pairs"]),2)
+ def test_failure_never_retries_or_returns_partial(self):
+  for phase in ("baseline","extract","lease","configure","candidate","count","source"):
+   with self.subTest(phase=phase):
+    row,error,calls,receipts=self.orchestrate(phase);self.assertIsNone(row);self.assertIsNotNone(error)
+    self.assertEqual(receipts[-1][1]["state"],"FATAL_NO_RETRY");self.assertFalse(receipts[-1][1]["partialAccepted"]);self.assertLessEqual(calls.count("baseline"),1);self.assertLessEqual(calls.count("candidate"),1)
+ def test_targeted_workflow_excludes_other_builds(self):
+  import pathlib,json
+  root=pathlib.Path(__file__).resolve().parents[1];wf=json.loads((root/".github/workflows/offline-android.yml").read_text())
+  job=wf["jobs"]["openssl-probe"];self.assertEqual(job["steps"][1]["run"],"python -B ci/perl_overlay.py --runtime-direct-output")
+  self.assertEqual(job["timeout-minutes"],12);self.assertEqual(job["steps"][1]["timeout-minutes"],10);self.assertEqual(job["permissions"],{"contents":"read"});self.assertEqual(job["steps"][2]["with"]["retention-days"],3)
+  self.assertIn("**/*.json",job["steps"][2]["with"]["path"]);self.assertNotIn(".o",job["steps"][2]["with"]["path"])
+
+
+class DirectOutputResourceBounds(unittest.TestCase):
+ def patch_table(self,index,count):
+  import struct
+  b=bytearray(_direct_elf());table=struct.unpack_from("<Q",b,40)[0];offset=len(b)
+  if index==4:body=bytes(count*24)
+  else:body=struct.pack("<QQq",0,(2<<32)|283,0)*count
+  b.extend(body);struct.pack_into("<QQ",b,table+index*64+24,offset,len(body))
+  return bytes(b)
+ def test_symbol_count_exact_and_exhausted(self):
+  import direct_output_probe as d
+  self.assertEqual(d.elf_signature(self.patch_table(4,4096))["symbols"],4096)
+  with self.assertRaisesRegex(AssertionError,"DIRECT_ELF_SYMBOL_BOUND"):d.elf_signature(self.patch_table(4,4097))
+ def test_relocation_count_exact_and_exhausted(self):
+  import direct_output_probe as d
+  self.assertEqual(d.elf_signature(self.patch_table(5,8192))["relocations"],8192)
+  with self.assertRaisesRegex(AssertionError,"DIRECT_ELF_RELOC_BOUND"):d.elf_signature(self.patch_table(5,8193))
+ def test_symbol_name_exact_and_exhausted(self):
+  import direct_output_probe as d,struct
+  for length in (256,257):
+   b=bytearray(_direct_elf());table=struct.unpack_from("<Q",b,40)[0];offset=len(b);body=b"\0"+b"a"*length+b"\0";b.extend(body)
+   struct.pack_into("<QQ",b,table+3*64+24,offset,len(body))
+   if length==256:self.assertEqual(d.elf_signature(bytes(b))["symbols"],3)
+   else:
+    with self.assertRaisesRegex(AssertionError,"DIRECT_ELF_STRING"):d.elf_signature(bytes(b))
+ def test_relocation_total_across_sections(self):
+  import direct_output_probe as d,struct
+  b=bytearray(self.patch_table(5,5000));table=struct.unpack_from("<Q",b,40)[0]
+  namesoff=struct.unpack_from("<Q",b,table+64+24)[0];nameat=b.index(b".debug_info\0",namesoff);b[nameat:nameat+12]=b".rela.extra\0"
+  nameindex=struct.unpack_from("<I",b,table+7*64)[0];offset=len(b);body=struct.pack("<QQq",0,(2<<32)|283,0)*5000;b.extend(body)
+  struct.pack_into("<IIQQQQIIQQ",b,table+7*64,nameindex,4,64,0,offset,len(body),4,2,8,24)
+  with self.assertRaisesRegex(AssertionError,"DIRECT_ELF_RELOC_BOUND"):d.elf_signature(bytes(b))
+
+
+class DirectOutputDiagnosticPrivacy(unittest.TestCase):
+ _missing=object()
+ def failure(self,value=_missing):
+  import direct_output_probe as d,perl_overlay as p,json
+  from unittest.mock import patch
+  from types import SimpleNamespace
+  rows=[];error=AssertionError() if value is self._missing else AssertionError(value)
+  with patch.object(d,"arm_scope",return_value=SimpleNamespace(mkdir=lambda:None)),patch.object(p,"qualify_cargo_objects",side_effect=error),patch.object(d,"_put",side_effect=lambda out,name,row:rows.append((name,row))):
+   with self.assertRaises(AssertionError) as got:d.qualify_four_objects(None,{},object(),object(),object(),None,{})
+  self.assertIs(got.exception,error)
+  self.assertEqual(len(rows),1);name,row=rows[0]
+  self.assertEqual(name,"direct-output-failure.json")
+  self.assertEqual(row["state"],"FATAL_NO_RETRY");self.assertEqual(row["stage"],"BASELINE");self.assertFalse(row["partialAccepted"])
+  self.assertEqual(row["errorClass"],"AssertionError")
+  self.assertLessEqual(len(json.dumps(row)),512);self.assertLessEqual(len(row["code"]),80)
+  return row
+ def test_valid_ascii_codes_and_boundary(self):
+  for value in ("DIRECT_OUTPUT_FAILURE","ERR_2","A"*80):
+   with self.subTest(case="valid"):self.assertEqual(self.failure(value)["code"],value)
+ def test_uppercase_paths_and_uris_redacted(self):
+  for value in (r"X:\PRIVATE\UPPER.TXT","X:/PRIVATE/UPPER.TXT","/PRIVATE/UPPER",r"..\PRIVATE\UPPER","HTTPS://EXAMPLE.INVALID/PRIVATE","PRIVATE.TXT"):
+   with self.subTest(case="path"):self.assertEqual(self.failure(value)["code"],"DIRECT_OUTPUT_FAILURE")
+ def test_whitespace_quotes_and_shell_redacted(self):
+  for value in ("BAD CODE","BAD\nCODE","BAD\tCODE",'"UPPER"',"BAD;CODE","BAD"+chr(96)+"CODE"):
+   with self.subTest(case="syntax"):self.assertEqual(self.failure(value)["code"],"DIRECT_OUTPUT_FAILURE")
+ def test_unicode_oversize_and_empty_redacted(self):
+  for value in ("\u00c9CHEC","A"*81,"A"*20000,""):
+   with self.subTest(case="bound"):self.assertEqual(self.failure(value)["code"],"DIRECT_OUTPUT_FAILURE")
+ def test_missing_non_string_causes_redacted(self):
+  self.assertEqual(self.failure()["code"],"DIRECT_OUTPUT_FAILURE")
+  for value in (None,42,{"private":"VALUE"}):
+   with self.subTest(case="type"):self.assertEqual(self.failure(value)["code"],"DIRECT_OUTPUT_FAILURE")
+ def test_failure_stays_fatal_and_bounded(self):
+  row=self.failure("DIRECT_EXPECTED_FAILURE")
+  self.assertEqual(set(row),{"state","stage","errorClass","code","errno","winerror","partialAccepted"})
+  self.assertIsNone(row["errno"]);self.assertIsNone(row["winerror"])
 
 if __name__=="__main__":unittest.main()

@@ -792,8 +792,9 @@ def targeted_dependency_sequence(output,target,stage):
  else:assert len(lines)==1,"TARGETED_SILENT_DEPENDENCY_OUTPUT"
  return lines[0]
 
-def cargo_recipe_arguments(output,target,source,generator_required=None,recipe_stage=None):
+def cargo_recipe_arguments(output,target,source,generator_required=None,recipe_stage=None,direct_output=False):
  import shlex
+ assert type(direct_output) is bool and (not direct_output or target=="crypto/libcrypto-lib-ctype.o"),"TARGETED_DIRECT_ROLE"
  from ndk_compilers import PATHS
  allowed={"crypto/libcrypto-lib-ctype.o":"crypto/ctype.c","crypto/aes/libcrypto-lib-aes-sha1-armv8.o":"crypto/aes/aes-sha1-armv8.S"}
  assert allowed.get(target)==source,"TARGETED_OBJECT_SCOPE"
@@ -813,6 +814,7 @@ def cargo_recipe_arguments(output,target,source,generator_required=None,recipe_s
    if recipe_stage is not None and target=="crypto/libcrypto-lib-ctype.o":
     dep="crypto/libcrypto-lib-ctype.d.tmp"
     assert args.count("-MMD")==1 and args.count("-MF")==1 and args[args.index("-MF")+1]==dep and not any(x.startswith("-MF") and x!="-MF" for x in args),"TARGETED_DEPENDENCY_COMPILER_OUTPUT"
+   assert args.count("-fno-temp-file")==int(direct_output),"TARGETED_DIRECT_FLAG"
    compiler.append(args)
   elif args[0]=="CC="+encoded:
    assert len(args)>=5 and target=="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" and args[1]=="perl.exe","TARGETED_GENERATOR_ROLE"
@@ -821,6 +823,7 @@ def cargo_recipe_arguments(output,target,source,generator_required=None,recipe_s
    assert all(x in ("-I.","-Iutil/perl") for x in args[2:index]) and len(set(args[2:index]))==len(args[2:index]),"TARGETED_GENERATOR_PREFIX"
    assert args[index+1]=="linux64" and args[-1]==source,"TARGETED_GENERATOR_TARGET"
    assert all(_recipe_word(x) and not x.startswith("/") and not x.startswith("-I/") for x in args[index+2:-1]),"TARGETED_GENERATOR_ARGUMENT"
+   assert "-fno-temp-file" not in args,"TARGETED_GENERATOR_DIRECT_FLAG"
    generators.append(args)
   else:raise AssertionError("TARGETED_UNKNOWN_COMMAND")
  assert len(compiler)==1 and len(generators)<=1,"TARGETED_COMMAND_COUNT"
@@ -871,12 +874,12 @@ def put_command_evidence(out,stage,target,row):
  data=(json.dumps(row,indent=2)+"\n").encode();assert len(data)<=49152,"COMMAND_RECEIPT_BOUND"
  with (out/("command-"+names[target]+"-"+stage+".json")).open("xb") as f:f.write(data)
 
-def validated_command_evidence(out,stage,output,target,source,work,generator_required):
+def validated_command_evidence(out,stage,output,target,source,work,generator_required,direct_output=False):
  assert stage in ("dryrun","executed"),"COMMAND_STAGE"
  evidence=command_evidence(output,target,work,stage);put_command_evidence(out,stage,target,evidence)
  try:
   assert evidence["completeForQualification"],"COMMAND_EVIDENCE_INCOMPLETE"
-  return cargo_recipe_arguments(output,target,source,generator_required,stage)
+  return cargo_recipe_arguments(output,target,source,generator_required,stage,direct_output=direct_output)
  except BaseException as error:
   code=error.args[0] if error.args and isinstance(error.args[0],str) and re.fullmatch(r"[A-Z_0-9]{1,80}",error.args[0]) else "COMMAND_VALIDATION_FAILED"
   failure={"state":"COMMAND_VALIDATION_FAILED_FATAL","target":target,"inputSHA256":evidence["inputSHA256"],"errorClass":type(error).__name__[:64],"code":code,"errno":getattr(error,"errno",None) if type(getattr(error,"errno",None)) is int else None,"winerror":getattr(error,"winerror",None) if type(getattr(error,"winerror",None)) is int else None,"partialBuildAccepted":False}
@@ -951,7 +954,7 @@ def qualify_openssl_template(src,resource_check=lambda:None,api=None,clock=time.
    if primary is not None:primary.add_note("TEMPLATE_HANDLE_CLOSE_FAILED")
    else:raise AssertionError("TEMPLATE_HANDLE_CLOSE_FAILED")
 
-def qualify_cargo_objects(guard,env,work,out,src,perl,configuration):
+def qualify_cargo_objects(guard,env,work,out,src,perl,configuration,direct_output_arm=None):
  from openssl_probe import PHYSICAL_SDK,CHECKSUM,PREFIX
  from perl_path_probe import MAKE_SHA,MAKE_BYTES
  from build_guard import executable_snapshot
@@ -964,26 +967,33 @@ def qualify_cargo_objects(guard,env,work,out,src,perl,configuration):
   assert row["sha256"]==digest and (size is None or row["bytes"]==size),"TARGETED_TOOL_PIN"
  makefile=src/"Makefile";before=hashlib.sha256(makefile.read_bytes()).hexdigest()
  assert before==configuration["files"]["Makefile"]["sha256"],"TARGETED_MAKEFILE_CHANGED"
- assert src==work/"crate"/PREFIX/"openssl","TARGETED_TEMPLATE_SOURCE_SCOPE"
+ assert direct_output_arm in (None,"baseline","candidate"),"TARGETED_DIRECT_ARM"
+ source_work=work/"candidate" if direct_output_arm=="candidate" else work
+ assert src==source_work/"crate"/PREFIX/"openssl","TARGETED_TEMPLATE_SOURCE_SCOPE"
  template_binding=qualify_openssl_template(src,guard._resource_sample)
  def verify_template():assert qualify_openssl_template(src,guard._resource_sample)==template_binding,"TARGETED_TEMPLATE_CHANGED"
  guard.run([make,"-f","Makefile","-j1","include/openssl/opensslv.h"],cwd=src,env=cross,capture=True,timeout=60)
  verify_template()
  rows=[]
  for target,source in (("crypto/libcrypto-lib-ctype.o","crypto/ctype.c"),("crypto/aes/libcrypto-lib-aes-sha1-armv8.o","crypto/aes/aes-sha1-armv8.S")):
+  direct=direct_output_arm=="candidate" and target=="crypto/libcrypto-lib-ctype.o"
+  if direct_output_arm is not None:
+   from direct_output_probe import make_command
   obj=src/target;assert not obj.exists(),"TARGETED_EXISTING_OBJECT"
   initial=smoke_artifact_identity(src/source) if (src/source).is_file() else None
   verify_template()
-  dry=guard.run([make,"-f","Makefile","--dry-run","-j1",target],cwd=src,env=cross,capture=True,timeout=30)
+  dry_args=make_command(make,target,configuration["makefileFields"],direct_output_arm,True) if direct_output_arm is not None else [make,"-f","Makefile","--dry-run","-j1",target]
+  dry=guard.run(dry_args,cwd=src,env=cross,capture=True,timeout=30)
   verify_template()
   generator_required=target=="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" and initial is None
   generator=src/"crypto/aes/asm/aes-sha1-armv8.pl"
   generator_identity=smoke_artifact_identity(generator) if target=="crypto/aes/libcrypto-lib-aes-sha1-armv8.o" else None
-  args=validated_command_evidence(out,"dryrun",dry.stdout,target,source,work,generator_required)
+  args=validated_command_evidence(out,"dryrun",dry.stdout,target,source,work,generator_required,direct_output=direct)
   verify_template()
-  done=guard.run([make,"-f","Makefile","-j1",target],cwd=src,env=cross,capture=True,timeout=90)
+  done_args=make_command(make,target,configuration["makefileFields"],direct_output_arm,False) if direct_output_arm is not None else [make,"-f","Makefile","-j1",target]
+  done=guard.run(done_args,cwd=src,env=cross,capture=True,timeout=90)
   verify_template()
-  assert validated_command_evidence(out,"executed",done.stdout,target,source,work,generator_required)==args,"TARGETED_EXECUTED_RECIPE_CHANGED"
+  assert validated_command_evidence(out,"executed",done.stdout,target,source,work,generator_required,direct_output=direct)==args,"TARGETED_EXECUTED_RECIPE_CHANGED"
   if generator_identity is not None:assert smoke_artifact_identity(generator)==generator_identity,"TARGETED_GENERATOR_CHANGED"
   meta=smoke_artifact_identity(obj);assert 64<=meta["bytes"]<=2*1024**2,"TARGETED_OBJECT_SIZE"
   data=obj.read_bytes();assert data[:6]==b"\x7fELF\x02\x01" and int.from_bytes(data[16:18],"little")==1 and int.from_bytes(data[18:20],"little")==183,"TARGETED_OBJECT_NOT_ARM64_REL"
@@ -996,7 +1006,8 @@ def qualify_cargo_objects(guard,env,work,out,src,perl,configuration):
  (out/"cargo-command-qualification.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8");print(json.dumps(report,indent=2),flush=True)
  return report
 
-def runtime_diagnosis(configure=False,cargo_commands=False):
+def runtime_diagnosis(configure=False,cargo_commands=False,direct_outputs=False):
+ assert type(direct_outputs) is bool and (not direct_outputs or configure and cargo_commands),"DIRECT_RUNTIME_ROLE"
  from openssl_probe import ROOT,PREFIX,probe_layout,probe_environment,with_physical_ndk_inputs
  from build_guard import Guard,MIN_FREE,MAX_OUTPUT
  from check_source import source_check
@@ -1026,14 +1037,19 @@ def runtime_diagnosis(configure=False,cargo_commands=False):
  src=work/"crate"/PREFIX/"openssl"
  if cargo_commands:selected,qualified_env,report=qualify_prepared_runtime(guard,env,work,out,src,configure=configure,cargo_commands=True)
  else:selected,qualified_env,report=qualify_prepared_runtime(guard,env,work,out,src,configure=configure)
- if cargo_commands:qualify_cargo_objects(guard,qualified_env,work,out,src,pathlib.Path(selected["path"]),report["configuration"])
+ if cargo_commands:
+  if direct_outputs:
+   from direct_output_probe import qualify_four_objects
+   qualify_four_objects(guard,qualified_env,work,out,src,pathlib.Path(selected["path"]),report["configuration"])
+  else:qualify_cargo_objects(guard,qualified_env,work,out,src,pathlib.Path(selected["path"]),report["configuration"])
  if not configure:
   from perl_path_probe import qualify as qualify_paths
   from openssl_probe import PHYSICAL_SDK
   qualify_paths(guard,qualified_env,work,out,pathlib.Path(selected["path"]),PHYSICAL_SDK/"ndk/30.0.16248370")
 
 if __name__=="__main__":
- if len(sys.argv)==2 and sys.argv[1]=="--runtime-cargo-command":runtime_diagnosis(configure=True,cargo_commands=True)
+ if len(sys.argv)==2 and sys.argv[1]=="--runtime-direct-output":runtime_diagnosis(configure=True,cargo_commands=True,direct_outputs=True)
+ elif len(sys.argv)==2 and sys.argv[1]=="--runtime-cargo-command":runtime_diagnosis(configure=True,cargo_commands=True)
  elif len(sys.argv)==2 and sys.argv[1]=="--runtime-configure":runtime_diagnosis(configure=True)
  elif len(sys.argv)==2 and sys.argv[1]=="--runtime-diagnosis":runtime_diagnosis()
  elif len(sys.argv)==4 and sys.argv[1]=="--runtime-prepare":runtime_prepare(pathlib.Path(sys.argv[2]),pathlib.Path(sys.argv[3]))

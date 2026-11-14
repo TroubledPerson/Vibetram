@@ -359,16 +359,16 @@
           }
         },
         {
-          "name": "Cargo-equivalent OpenSSL command quoting and exactly two tiny objects",
+          "name": "Baseline/candidate C-only direct-output qualification; exactly four tiny objects",
           "timeout-minutes": 10,
-          "run": "python -B ci/perl_overlay.py --runtime-cargo-command"
+          "run": "python -B ci/perl_overlay.py --runtime-direct-output"
         },
         {
           "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
           "if": "always()",
           "with": {
             "name": "openssl-configure-${{ github.sha }}",
-            "path": "openssl-probe-output/*.json\nopenssl-probe-work/failure-summary.json\nopenssl-probe-work/trial-progress.json",
+            "path": "openssl-probe-output/**/*.json\nopenssl-probe-work/failure-summary.json\nopenssl-probe-work/trial-progress.json",
             "if-no-files-found": "warn",
             "retention-days": 3
           }
