@@ -5,7 +5,7 @@
   },
   {
     "path": ".github/workflows/offline-android.yml",
-    "sha256": "a2cd9a583fda78037d67339fd417c24dce7f5b1721c4d0f7339494ccfa1eccba"
+    "sha256": "ffe68b7ff4e38fd060ae3211e05259f484429807227a63682c138af53d3d0e07"
   },
   {
     "path": ".gitignore",
@@ -184,6 +184,10 @@
     "sha256": "85cd6ed6c3bf40e52ec63e1d5a2cf0e5a4d9e265c2cdb95fe21f9e562d0ab3b3"
   },
   {
+    "path": "ci/configure_hook_probe.py",
+    "sha256": "c94ca42f2a672e8e27ebc7742fb262cea7edace355161fe7705f730662d89d65"
+  },
+  {
     "path": "ci/direct_output_probe.py",
     "sha256": "236e896fec4864507c8acbd0a613e371679ebb0e4a9b40a91a9613257a88337f"
   },
@@ -304,6 +308,10 @@
     "sha256": "1120e120b1078cc3603931459f8f8a24f485dc8a1cc7e4b032d6233869c68e08"
   },
   {
+    "path": "ci/test_configure_hook_probe.py",
+    "sha256": "8946c2b1ac2d63e585cf898f7165a8d4f0fb83f67361cdb051401251a794419f"
+  },
+  {
     "path": "ci/test_fixture_privacy.py",
     "sha256": "c8562e3e1c85e4837682da76da62cf3fa18e1fb029feca78808fa35c75c818e6"
   },
@@ -321,7 +329,7 @@
   },
   {
     "path": "ci/test_lock_diagnostic.py",
-    "sha256": "04ddc5567bf158cd33c02681cbda824ae036abcf9159e06f34b253ebc955075b"
+    "sha256": "3188c5a6925dc26e7a68751956583da26d521145b672157493ed676bbf7ca269"
   },
   {
     "path": "ci/test_lock_repair.py",
