@@ -368,12 +368,6 @@
           "if": "!contains(github.event.head_commit.message, '[configure-hook-only-191]')"
         },
         {
-          "name": "Pinned Perl Configure observer and generated Makefile qualification; no objects",
-          "if": "contains(github.event.head_commit.message, '[configure-hook-only-191]')",
-          "timeout-minutes": 10,
-          "run": "python -B ci/configure_hook_probe.py"
-        },
-        {
           "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
           "if": "always() && !contains(github.event.head_commit.message, '[configure-hook-only-191]')",
           "with": {
@@ -382,6 +376,12 @@
             "if-no-files-found": "warn",
             "retention-days": 3
           }
+        },
+        {
+          "name": "Pinned Perl Configure observer and generated Makefile qualification; no objects",
+          "if": "contains(github.event.head_commit.message, '[configure-hook-only-191]')",
+          "timeout-minutes": 10,
+          "run": "python -B ci/configure_hook_probe.py"
         },
         {
           "uses": "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f",
