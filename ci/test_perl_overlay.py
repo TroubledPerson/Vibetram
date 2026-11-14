@@ -1111,15 +1111,22 @@ class DirectOutputFourObjectProbe(unittest.TestCase):
   from openssl_probe import ROOT
   work=ROOT/"openssl-probe-work"
   for existing,digest in ((True,"bad"),(False,"bad")):
-   with patch("openssl_probe.regular_chain"),patch("openssl_probe.sha",return_value=digest),patch.object(pathlib.Path,"is_dir",return_value=True),patch.object(pathlib.Path,"iterdir",return_value=iter([pathlib.Path("prior")] if existing else [])),patch("direct_output_probe.tarfile.open") as tar,self.assertRaises(AssertionError):self.d.materialize_candidate(work)
+   directory_api=DirectMaterializationDirectories().api()
+   expected="DIRECT_PRESERVE_CANDIDATE" if existing else "DIRECT_ARCHIVE"
+   with patch("perl_overlay.TemplateInputAPI",return_value=directory_api),patch("openssl_probe.regular_chain"),patch("openssl_probe.sha",return_value=digest),patch.object(pathlib.Path,"is_dir",return_value=True),patch.object(pathlib.Path,"iterdir",return_value=iter([pathlib.Path("prior")] if existing else [])),patch("direct_output_probe.tarfile.open") as tar,self.assertRaisesRegex(AssertionError,expected):self.d.materialize_candidate(work)
    tar.assert_not_called()
+   self.assertIn(work,directory_api.paths.values());self.assertIn(work/"candidate",directory_api.paths.values())
+   self.assertEqual(set(directory_api.opened),set(directory_api.closed))
  def test_materialization_validates_before_writing(self):
   import pathlib
   from unittest.mock import patch,MagicMock
   from openssl_probe import ROOT,CHECKSUM
+  work=ROOT/"openssl-probe-work";directory_api=DirectMaterializationDirectories().api()
   tar=MagicMock();tar.__enter__.return_value.getmembers.return_value=[]
-  with patch("openssl_probe.regular_chain"),patch("openssl_probe.sha",return_value=CHECKSUM),patch.object(pathlib.Path,"is_dir",return_value=True),patch.object(pathlib.Path,"iterdir",return_value=iter([])),patch("direct_output_probe.tarfile.open",return_value=tar),patch("openssl_probe.validate_members",side_effect=AssertionError("BAD_MEMBERS")),patch.object(pathlib.Path,"open") as opened,self.assertRaises(AssertionError):self.d.materialize_candidate(ROOT/"openssl-probe-work")
+  with patch("perl_overlay.TemplateInputAPI",return_value=directory_api),patch("openssl_probe.regular_chain"),patch("openssl_probe.sha",return_value=CHECKSUM),patch.object(pathlib.Path,"is_dir",return_value=True),patch.object(pathlib.Path,"iterdir",return_value=iter([])),patch("direct_output_probe.tarfile.open",return_value=tar),patch("openssl_probe.validate_members",side_effect=AssertionError("BAD_MEMBERS")),patch.object(pathlib.Path,"open") as opened,self.assertRaisesRegex(AssertionError,"BAD_MEMBERS"):self.d.materialize_candidate(work)
   opened.assert_not_called()
+  self.assertIn(work,directory_api.paths.values());self.assertIn(work/"candidate",directory_api.paths.values())
+  self.assertEqual(set(directory_api.opened),set(directory_api.closed))
  def orchestrate(self,failure=None):
   import pathlib,types,hashlib,copy
   from unittest.mock import patch

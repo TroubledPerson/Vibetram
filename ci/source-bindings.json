@@ -365,7 +365,7 @@
   },
   {
     "path": "ci/test_perl_overlay.py",
-    "sha256": "ad022428dbbccf20b8b48de4c78ee2081220671793961e2bea057c1ce79c59a8"
+    "sha256": "2280b17f79e5ce00237061efaa1716d3df67fa12e7645b4185e2de94077964f4"
   },
   {
     "path": "ci/test_perl_path_probe.py",
